@@ -5,6 +5,42 @@
 
 const SS_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const PARIS_TIMEZONE = 'Europe/Paris';
+const PERSONNES_PHOTOS = {
+  'Mariona': 'https://drive.google.com/file/d/1BKnIHVwR2vlGQS9hPZXxsS9ZFXj-BNro/view?usp=sharing',
+  'Kevin': 'https://drive.google.com/file/d/1OEQeyny7tEcyd4OjjGP0DduEIzwJWSFR/view?usp=sharing',
+  'Gaïa': 'https://drive.google.com/file/d/19VVvI-iI0b_ZGGv-jMWSDfQ4diFhT9zP/view?usp=sharing',
+  'Gaby': 'https://drive.google.com/file/d/1hilJew_qhPLDrWlHxte7Ey1SQpLCBs-e/view?usp=sharing'
+};
+
+function normalizeDriveImageUrl(url, personne) {
+  const trimmed = String(url || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const match = trimmed.match(/https?:\/\/drive\.google\.com\/file\/d\/([^/]+)\//);
+  if (match) {
+    return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+  }
+
+  Logger.log(`[normalizeDriveImageUrl] URL Drive inattendue pour ${personne || 'inconnu'} : ${trimmed}`);
+  return trimmed;
+}
+
+function getPhotoUrlForPersonne(personne, photoUrlFromSheet) {
+  const sheetUrl = normalizeDriveImageUrl(photoUrlFromSheet, personne);
+  if (sheetUrl) {
+    return sheetUrl;
+  }
+
+  const mapUrl = normalizeDriveImageUrl(PERSONNES_PHOTOS[personne], personne);
+  if (mapUrl) {
+    return mapUrl;
+  }
+
+  Logger.log(`[getPhotoUrlForPersonne] Photo manquante pour ${personne}.`);
+  return '';
+}
 
 // ==================================================
 // UTILITAIRES DATES (PARIS)
@@ -136,7 +172,8 @@ function getPersonnes() {
     nom: row[0],
     avatar: row[1],
     couleur: row[2],
-    age: row[3]
+    age: row[3],
+    photoUrl: getPhotoUrlForPersonne(row[0], row[4])
   }));
 }
 
@@ -483,6 +520,7 @@ function getPersonneData(personne) {
       avatar: personneInfo ? personneInfo[1] : '👤',
       couleur: personneInfo ? personneInfo[2] : '#6C5CE7',
       age: personneInfo ? personneInfo[3] : 0,
+      photoUrl: getPhotoUrlForPersonne(personne, personneInfo ? personneInfo[4] : ''),
       weekPoints: weekPoints,
       weekDays: weekDays,
       dailyScores: dailyScores,
@@ -510,6 +548,7 @@ function getFamilyData() {
     return {
       nom: p.nom,
       avatar: p.avatar,
+      photoUrl: p.photoUrl,
       couleur: p.couleur,
       weekPoints: data.weekPoints,
       streak: data.streak,
