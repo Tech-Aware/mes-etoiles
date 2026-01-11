@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', function() {
   loadPersonnes();
   resetForm();
   setupBoutonAudio();
+  console.info('Initialisation terminée : audio et effets visuels prêts.');
 });
 
 function setupBoutonAudio() {
@@ -41,6 +42,7 @@ function setupBoutonAudio() {
     if (!btn) return;
 
     playButtonSound(btn);
+    triggerButtonVisualEffect(btn, event);
   });
 }
 
@@ -88,6 +90,45 @@ function playButtonSound(btn) {
   } catch (error) {
     console.error('Erreur lors de la lecture du son.', error);
   }
+}
+
+function triggerButtonVisualEffect(btn, event) {
+  const soundType = getButtonSoundType(btn);
+  try {
+    const effect = document.createElement('span');
+    const emoji = getVisualEmoji(btn, soundType);
+    effect.className = `mini-video-effect mini-video-${soundType}`;
+    effect.textContent = emoji;
+
+    const rect = btn.getBoundingClientRect();
+    const left = (event?.clientX ?? rect.left + rect.width / 2) - rect.left;
+    const top = (event?.clientY ?? rect.top + rect.height / 2) - rect.top;
+
+    effect.style.left = `${left}px`;
+    effect.style.top = `${top}px`;
+
+    btn.classList.add('btn-animable');
+    btn.appendChild(effect);
+
+    effect.addEventListener('animationend', () => effect.remove());
+  } catch (error) {
+    console.error('Erreur lors de l\'animation visuelle du bouton.', error);
+  }
+}
+
+function getVisualEmoji(btn, soundType) {
+  if (soundType === 'rating') {
+    const emojiElement = btn.querySelector('.scale-emoji');
+    if (emojiElement) return emojiElement.textContent.trim();
+  }
+  if (soundType === 'emotion') {
+    const emotionFace = btn.querySelector('.emotion-face, .humeur-emoji');
+    if (emotionFace) return emotionFace.textContent.trim();
+  }
+  if (soundType === 'reward') return '🎁';
+  if (soundType === 'nav') return '⭐';
+  if (soundType === 'sparkle') return '✨';
+  return '💫';
 }
 
 function getButtonSoundType(btn) {
