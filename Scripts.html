@@ -5,6 +5,8 @@
 
 let currentUser = null;
 let userData = null;
+window.currentUser = currentUser;
+window.userData = userData;
 
 // Tâches
 const allTasks = [
@@ -352,6 +354,23 @@ function loadPersonnes() {
 }
 
 function displayPersonnes(personnes) {
+  if (!Array.isArray(personnes)) {
+    console.error('[displayPersonnes] Données inattendues : liste de personnes absente ou invalide.', personnes);
+    showToast('Impossible de charger les personnes.', 'error');
+    return;
+  }
+
+  console.info(`[displayPersonnes] ${personnes.length} personne(s) reçue(s).`);
+  personnes.forEach(p => {
+    if (!p || !p.nom) {
+      console.warn('[displayPersonnes] Entrée personne invalide détectée.', p);
+      return;
+    }
+    if (!p.photoUrl) {
+      console.warn(`[displayPersonnes] Photo absente pour ${p.nom}. Fallback emoji appliqué.`);
+    }
+  });
+
   const container = document.getElementById('personnes-list');
   container.innerHTML = personnes.map(p => `
     <div class="personne-card" style="border-color: ${p.couleur}" onclick="selectPersonne('${p.nom}')">
@@ -371,6 +390,7 @@ function displayPersonnes(personnes) {
 // ==================================================
 function selectPersonne(nom) {
   currentUser = nom;
+  window.currentUser = currentUser;
   showToast('Chargement...', '');
   
   google.script.run
@@ -380,7 +400,20 @@ function selectPersonne(nom) {
 }
 
 function onUserLoaded(data) {
+  if (!data || !data.nom) {
+    console.error('[onUserLoaded] Données utilisateur invalides reçues.', data);
+    showToast('Impossible de charger le profil.', 'error');
+    return;
+  }
+
   userData = data;
+  window.userData = userData;
+
+  if (!data.photoUrl) {
+    console.warn(`[onUserLoaded] Photo absente pour ${data.nom}. Fallback emoji appliqué.`);
+  } else {
+    console.info(`[onUserLoaded] Photo chargée pour ${data.nom}.`);
+  }
 
   document.getElementById('header-avatar').innerHTML = buildAvatarHtml({
     photoUrl: data.photoUrl,
@@ -435,6 +468,8 @@ function goHome() {
   document.getElementById('screen-home').classList.add('active');
   currentUser = null;
   userData = null;
+  window.currentUser = currentUser;
+  window.userData = userData;
   resetForm();
   
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
