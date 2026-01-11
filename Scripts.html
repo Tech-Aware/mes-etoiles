@@ -1,0 +1,516 @@
+<script>
+// ==================================================
+// 🌟 MES ÉTOILES - SCRIPTS v4 avec Émotions
+// ==================================================
+
+let currentUser = null;
+let userData = null;
+
+// Tâches
+const allTasks = [
+  'rangerChambre', 'faireLit', 'rangerJouets', 'aiderTable',
+  'ecouter', 'gentilSoeur', 'politesse', 'pasColere',
+  'dentsMatin', 'dentsSoir', 'habiller', 'cartable'
+];
+
+let taskRatings = {};
+let selectedEmotions = [];
+let selectedSource = null;
+let gestionScore = null;
+let selectedHumeur = null;
+
+// ==================================================
+// INITIALISATION
+// ==================================================
+document.addEventListener('DOMContentLoaded', function() {
+  loadPersonnes();
+  resetForm();
+});
+
+function resetForm() {
+  taskRatings = {};
+  allTasks.forEach(t => taskRatings[t] = null);
+  selectedEmotions = [];
+  selectedSource = null;
+  gestionScore = null;
+  selectedHumeur = null;
+}
+
+// ==================================================
+// CHARGEMENT DES PERSONNES
+// ==================================================
+function loadPersonnes() {
+  google.script.run
+    .withSuccessHandler(displayPersonnes)
+    .withFailureHandler(handleError)
+    .getPersonnes();
+}
+
+function displayPersonnes(personnes) {
+  const container = document.getElementById('personnes-list');
+  container.innerHTML = personnes.map(p => `
+    <div class="personne-card" style="border-color: ${p.couleur}" onclick="selectPersonne('${p.nom}')">
+      <span class="personne-avatar">${p.avatar}</span>
+      <span class="personne-nom">${p.nom}</span>
+    </div>
+  `).join('');
+}
+
+// ==================================================
+// SÉLECTION PERSONNE
+// ==================================================
+function selectPersonne(nom) {
+  currentUser = nom;
+  showToast('Chargement...', '');
+  
+  google.script.run
+    .withSuccessHandler(onUserLoaded)
+    .withFailureHandler(handleError)
+    .getPersonneData(nom);
+}
+
+function onUserLoaded(data) {
+  userData = data;
+  
+  document.getElementById('header-avatar').textContent = data.avatar;
+  document.getElementById('header-name').textContent = data.nom;
+  document.getElementById('header-points').textContent = data.weekPoints;
+  
+  document.getElementById('screen-home').classList.remove('active');
+  document.getElementById('screen-main').classList.add('active');
+  
+  if (data.evaluatedToday) {
+    document.getElementById('eval-form').style.display = 'none';
+    document.getElementById('already-done').style.display = 'block';
+  } else {
+    document.getElementById('eval-form').style.display = 'block';
+    document.getElementById('already-done').style.display = 'none';
+    resetForm();
+    resetFormUI();
+  }
+  
+  loadStatsPage();
+  loadFamilyPage();
+  loadRewardsPage();
+  loadBadgesPage();
+  
+  hideToast();
+}
+
+function resetFormUI() {
+  document.querySelectorAll('.scale-btn').forEach(btn => btn.classList.remove('selected'));
+  document.querySelectorAll('.emotion-btn').forEach(btn => btn.classList.remove('selected'));
+  document.querySelectorAll('.source-btn').forEach(btn => btn.classList.remove('selected'));
+  document.querySelectorAll('.gestion-btn').forEach(btn => btn.classList.remove('selected'));
+  document.querySelectorAll('.humeur-btn').forEach(btn => btn.classList.remove('selected'));
+  document.getElementById('selected-emotions').innerHTML = '';
+  document.getElementById('preview-score').textContent = '0';
+  document.getElementById('preview-fill').style.width = '0%';
+  document.getElementById('preview-message').textContent = 'Remplis toutes les cases !';
+  document.getElementById('btn-submit').disabled = true;
+}
+
+// ==================================================
+// NAVIGATION
+// ==================================================
+function goHome() {
+  document.getElementById('screen-main').classList.remove('active');
+  document.getElementById('screen-home').classList.add('active');
+  currentUser = null;
+  userData = null;
+  resetForm();
+  
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('.nav-btn[data-page="eval"]').classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-eval').classList.add('active');
+}
+
+function showPage(pageName) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  
+  document.getElementById('page-' + pageName).classList.add('active');
+  document.querySelector(`.nav-btn[data-page="${pageName}"]`).classList.add('active');
+  
+  if (pageName === 'family') loadFamilyPage();
+  if (pageName === 'stats') loadStatsPage();
+}
+
+// ==================================================
+// ÉVALUATION - TÂCHES
+// ==================================================
+function setTaskRating(taskId, value, btn) {
+  taskRatings[taskId] = value;
+  
+  const scale = btn.closest('.rating-scale');
+  scale.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  
+  updatePreview();
+  checkCanSubmit();
+}
+
+// ==================================================
+// ÉVALUATION - ÉMOTIONS
+// ==================================================
+function toggleEmotion(emoji, name, btn) {
+  const index = selectedEmotions.findIndex(e => e.emoji === emoji);
+  
+  if (index > -1) {
+    // Retirer
+    selectedEmotions.splice(index, 1);
+    btn.classList.remove('selected');
+  } else {
+    // Ajouter (max 2)
+    if (selectedEmotions.length < 2) {
+      selectedEmotions.push({ emoji, name });
+      btn.classList.add('selected');
+    } else {
+      showToast('Maximum 2 émotions !', 'error');
+      return;
+    }
+  }
+  
+  updateSelectedEmotionsDisplay();
+  checkCanSubmit();
+}
+
+function updateSelectedEmotionsDisplay() {
+  const container = document.getElementById('selected-emotions');
+  
+  if (selectedEmotions.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  
+  container.innerHTML = selectedEmotions.map(e => `
+    <div class="selected-emotion-tag">
+      <span>${e.emoji}</span>
+      <span>${e.name}</span>
+    </div>
+  `).join('');
+}
+
+function selectSource(emoji, name, btn) {
+  document.querySelectorAll('.source-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedSource = { emoji, name };
+  checkCanSubmit();
+}
+
+function setGestion(value, btn) {
+  document.querySelectorAll('.gestion-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  gestionScore = value;
+  updatePreview();
+  checkCanSubmit();
+}
+
+function setHumeur(emoji, btn) {
+  document.querySelectorAll('.humeur-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedHumeur = emoji;
+  checkCanSubmit();
+}
+
+// ==================================================
+// PREVIEW & VALIDATION
+// ==================================================
+function updatePreview() {
+  let total = 0;
+  let filledTasks = 0;
+  
+  allTasks.forEach(t => {
+    if (taskRatings[t] !== null) {
+      total += taskRatings[t];
+      filledTasks++;
+    }
+  });
+  
+  if (gestionScore !== null) {
+    total += gestionScore;
+  }
+  
+  document.getElementById('preview-score').textContent = total;
+  document.getElementById('preview-fill').style.width = (total / 52 * 100) + '%';
+  
+  const percent = Math.round((total / 52) * 100);
+  let message = '';
+  
+  if (filledTasks < 12) {
+    message = `Encore ${12 - filledTasks} cases à remplir !`;
+  } else if (gestionScore === null) {
+    message = 'N\'oublie pas les émotions !';
+  } else if (percent >= 90) {
+    message = '🌟 INCROYABLE ! Tu es une STAR !';
+  } else if (percent >= 75) {
+    message = '🎉 SUPER journée !';
+  } else if (percent >= 50) {
+    message = '👍 Bien joué !';
+  } else {
+    message = '💪 Tu peux faire mieux demain !';
+  }
+  
+  document.getElementById('preview-message').textContent = message;
+}
+
+function checkCanSubmit() {
+  const allTasksFilled = allTasks.every(t => taskRatings[t] !== null);
+  const emotionsOk = selectedEmotions.length >= 1;
+  const sourceOk = selectedSource !== null;
+  const gestionOk = gestionScore !== null;
+  const humeurOk = selectedHumeur !== null;
+  
+  const canSubmit = allTasksFilled && emotionsOk && sourceOk && gestionOk && humeurOk;
+  document.getElementById('btn-submit').disabled = !canSubmit;
+}
+
+// ==================================================
+// SOUMETTRE ÉVALUATION
+// ==================================================
+function submitEvaluation() {
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-icon">⏳</span><span class="btn-text">Envoi...</span>';
+  
+  const taches = taskRatings;
+  const emotions = {
+    emotion1: selectedEmotions[0] ? selectedEmotions[0].emoji : '',
+    emotion2: selectedEmotions[1] ? selectedEmotions[1].emoji : '',
+    source: selectedSource ? selectedSource.emoji : '',
+    gestion: gestionScore
+  };
+  
+  google.script.run
+    .withSuccessHandler(onEvaluationDone)
+    .withFailureHandler(handleError)
+    .submitEvaluation(currentUser, taches, emotions, selectedHumeur, '');
+}
+
+function onEvaluationDone(result) {
+  const btn = document.getElementById('btn-submit');
+  btn.innerHTML = '<span class="btn-icon">🌟</span><span class="btn-text">Gagner mes étoiles !</span>';
+  
+  if (result.success) {
+    showSuccessModal(result);
+  } else {
+    showToast(result.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+function showSuccessModal(result) {
+  const modal = document.getElementById('success-modal');
+  
+  document.getElementById('success-title').textContent = 
+    result.stars >= 4 ? 'BRAVO !' : result.stars >= 2 ? 'Bien joué !' : 'Continue !';
+  document.getElementById('success-message').textContent = result.message;
+  document.getElementById('success-points').textContent = result.totalJour;
+  
+  const starsDisplay = document.getElementById('success-stars-display');
+  starsDisplay.textContent = '⭐'.repeat(result.stars) + '☆'.repeat(5 - result.stars);
+  
+  const badgesContainer = document.getElementById('success-badges');
+  if (result.newBadges && result.newBadges.length > 0) {
+    badgesContainer.innerHTML = '<p style="margin-bottom:10px;font-weight:700;">🎉 Nouveau trophée !</p>' +
+      result.newBadges.map(b => `
+        <div class="new-badge">
+          <span>${b.emoji}</span>
+          <span>${b.nom}</span>
+        </div>
+      `).join('');
+  } else {
+    badgesContainer.innerHTML = '';
+  }
+  
+  modal.classList.add('active');
+  createConfetti();
+}
+
+function closeModal() {
+  document.getElementById('success-modal').classList.remove('active');
+  google.script.run
+    .withSuccessHandler(onUserLoaded)
+    .getPersonneData(currentUser);
+}
+
+function createConfetti() {
+  const container = document.getElementById('confetti-container');
+  container.innerHTML = '';
+  const colors = ['#FF6B9D', '#C56CF0', '#54A0FF', '#1DD1A1', '#FECA57', '#FF9F43'];
+  
+  for (let i = 0; i < 60; i++) {
+    const confetti = document.createElement('div');
+    confetti.className = 'confetti';
+    confetti.style.left = Math.random() * 100 + '%';
+    confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
+    confetti.style.borderRadius = Math.random() > 0.5 ? '50%' : '0';
+    confetti.style.animation = `confettiFall ${2 + Math.random() * 2}s ease-out forwards`;
+    confetti.style.animationDelay = Math.random() * 0.5 + 's';
+    container.appendChild(confetti);
+  }
+}
+
+// ==================================================
+// PAGE STATS
+// ==================================================
+function loadStatsPage() {
+  if (!userData) return;
+  
+  document.getElementById('stats-week-points').textContent = userData.weekPoints;
+  const maxWeek = 52 * 7;
+  document.getElementById('stats-week-fill').style.width = (userData.weekPoints / maxWeek * 100) + '%';
+  document.getElementById('stats-streak').textContent = userData.streak;
+  
+  const daysContainer = document.getElementById('stats-days');
+  const jours = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+  
+  daysContainer.innerHTML = userData.dailyScores.map((score, i) => {
+    let classe = '';
+    if (score !== null) {
+      if (score >= 45) classe = 'perfect';
+      else if (score >= 30) classe = 'good';
+      else classe = 'low';
+    }
+    return `
+      <div class="day-cell ${classe}">
+        <div class="day-letter">${jours[i]}</div>
+        <div class="day-score">${score !== null ? score : '-'}</div>
+      </div>
+    `;
+  }).join('');
+  
+  // Historique émotions
+  const emotionsContainer = document.getElementById('emotions-history-list');
+  if (userData.recentEmotions && userData.recentEmotions.length > 0) {
+    emotionsContainer.innerHTML = userData.recentEmotions.map(e => {
+      let gestionClass = 'gestion-ok';
+      if (e.gestion >= 3) gestionClass = 'gestion-good';
+      else if (e.gestion <= 1) gestionClass = 'gestion-bad';
+      
+      return `
+        <div class="emotion-history-item">
+          <div class="emotion-history-date">${e.date}</div>
+          <div class="emotion-history-emotions">${e.emotion1} ${e.emotion2 || ''}</div>
+          <div class="emotion-history-gestion ${gestionClass}">${e.gestion}/4</div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    emotionsContainer.innerHTML = '<p style="text-align:center;color:#888;">Pas encore d\'historique</p>';
+  }
+}
+
+// ==================================================
+// PAGE FAMILLE
+// ==================================================
+function loadFamilyPage() {
+  google.script.run
+    .withSuccessHandler(displayFamily)
+    .getFamilyData();
+}
+
+function displayFamily(family) {
+  const container = document.getElementById('family-list');
+  container.innerHTML = family.map((f, i) => `
+    <div class="family-card" style="border-color: ${f.couleur}">
+      <div class="family-rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '⭐'}</div>
+      <div class="family-avatar">${f.avatar}</div>
+      <div class="family-info">
+        <div class="family-name">${f.nom}</div>
+        <div class="family-streak">🔥 ${f.streak} jours • 🏆 ${f.badgeCount} trophées</div>
+      </div>
+      <div class="family-pts">${f.weekPoints}</div>
+      <div class="family-status">${f.evaluatedToday ? '✅' : '⏳'}</div>
+    </div>
+  `).join('');
+}
+
+// ==================================================
+// PAGE RÉCOMPENSES
+// ==================================================
+function loadRewardsPage() {
+  if (!userData) return;
+  
+  document.getElementById('rewards-total').textContent = userData.weekPoints;
+  
+  const container = document.getElementById('rewards-list');
+  container.innerHTML = userData.rewards.map(r => `
+    <div class="reward-card ${r.disponible ? 'available' : 'locked'}">
+      <div class="reward-emoji">${r.emoji}</div>
+      <div class="reward-name">${r.nom}</div>
+      <div class="reward-cost">${r.cout} ⭐</div>
+      ${r.disponible 
+        ? `<button class="btn-reward" onclick="claimReward('${r.id}', '${r.nom}')">Je veux ! 🎉</button>`
+        : `<div class="reward-locked">🔒 Encore ${r.cout - userData.weekPoints} étoiles</div>`
+      }
+    </div>
+  `).join('');
+}
+
+function claimReward(rewardId, rewardName) {
+  if (!confirm(`Tu veux vraiment "${rewardName}" ? 🎁`)) return;
+  
+  showToast('Demande en cours...', '');
+  
+  google.script.run
+    .withSuccessHandler(result => {
+      showToast(result.message, result.success ? 'success' : 'error');
+    })
+    .withFailureHandler(handleError)
+    .claimReward(currentUser, rewardId);
+}
+
+// ==================================================
+// PAGE BADGES
+// ==================================================
+function loadBadgesPage() {
+  if (!userData) return;
+  
+  document.getElementById('badges-num').textContent = userData.badges.length;
+  
+  const container = document.getElementById('badges-list');
+  
+  if (userData.badges.length === 0) {
+    container.innerHTML = `
+      <div class="empty-badges">
+        <div class="empty-badges-icon">🎯</div>
+        <p>Continue comme ça pour gagner<br>ton premier trophée !</p>
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = userData.badges.map(b => `
+    <div class="badge-card obtained">
+      <div class="badge-emoji">${b.emoji}</div>
+      <div class="badge-name">${b.nom}</div>
+    </div>
+  `).join('');
+}
+
+// ==================================================
+// UTILITAIRES
+// ==================================================
+function showToast(message, type) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = 'toast show ' + type;
+}
+
+function hideToast() {
+  document.getElementById('toast').classList.remove('show');
+}
+
+function handleError(error) {
+  console.error(error);
+  showToast('Oups ! Réessaie 😕', 'error');
+  
+  const btn = document.getElementById('btn-submit');
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="btn-icon">🌟</span><span class="btn-text">Gagner mes étoiles !</span>';
+  }
+}
+</script>
