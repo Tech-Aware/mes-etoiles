@@ -18,6 +18,13 @@ let selectedEmotions = [];
 let selectedSource = null;
 let gestionScore = null;
 let selectedHumeur = null;
+let audioContext = null;
+
+const audioConfig = {
+  defaultVolume: 0.08,
+  clickDuration: 0.08,
+  sparkleDuration: 0.16
+};
 
 // ==================================================
 // INITIALISATION
@@ -25,7 +32,214 @@ let selectedHumeur = null;
 document.addEventListener('DOMContentLoaded', function() {
   loadPersonnes();
   resetForm();
+  setupBoutonAudio();
+  console.info('Initialisation terminée : audio et effets visuels prêts.');
 });
+
+function setupBoutonAudio() {
+  document.addEventListener('click', event => {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+
+    playButtonSound(btn);
+    triggerButtonVisualEffect(btn, event);
+  });
+}
+
+function ensureAudioContext() {
+  if (audioContext) return audioContext;
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    console.warn('AudioContext non supporté : sons désactivés.');
+    return null;
+  }
+
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    console.info('AudioContext initialisé pour les effets sonores.');
+  } catch (error) {
+    console.error('Impossible d\'initialiser AudioContext.', error);
+    return null;
+  }
+
+  return audioContext;
+}
+
+function resumeAudioContext(context) {
+  if (!context) return;
+  if (context.state === 'suspended') {
+    context.resume().catch(error => {
+      console.error('Échec de reprise AudioContext.', error);
+    });
+  }
+}
+
+function playButtonSound(btn) {
+  const context = ensureAudioContext();
+  if (!context) return;
+
+  resumeAudioContext(context);
+
+  const soundType = getButtonSoundType(btn);
+  try {
+    if (soundType === 'sparkle') {
+      playSparkleSound(context);
+      return;
+    }
+
+    if (soundType === 'rating') {
+      playRatingSound(context, btn);
+      return;
+    }
+
+    playClickSound(context, soundType);
+  } catch (error) {
+    console.error('Erreur lors de la lecture du son.', error);
+  }
+}
+
+function triggerButtonVisualEffect(btn, event) {
+  const soundType = getButtonSoundType(btn);
+  try {
+    const effect = document.createElement('span');
+    const emoji = getVisualEmoji(btn, soundType);
+    effect.className = `mini-video-effect mini-video-${soundType}`;
+    effect.textContent = emoji;
+
+    const rect = btn.getBoundingClientRect();
+    const left = (event?.clientX ?? rect.left + rect.width / 2) - rect.left;
+    const top = (event?.clientY ?? rect.top + rect.height / 2) - rect.top;
+
+    effect.style.left = `${left}px`;
+    effect.style.top = `${top}px`;
+
+    btn.classList.add('btn-animable');
+    btn.appendChild(effect);
+
+    effect.addEventListener('animationend', () => effect.remove());
+  } catch (error) {
+    console.error('Erreur lors de l\'animation visuelle du bouton.', error);
+  }
+}
+
+function getVisualEmoji(btn, soundType) {
+  if (soundType === 'rating') {
+    const emojiElement = btn.querySelector('.scale-emoji');
+    if (emojiElement) return emojiElement.textContent.trim();
+  }
+  if (soundType === 'emotion') {
+    const emotionFace = btn.querySelector('.emotion-face, .humeur-emoji');
+    if (emotionFace) return emotionFace.textContent.trim();
+  }
+  if (soundType === 'reward') return '🎁';
+  if (soundType === 'nav') return '⭐';
+  if (soundType === 'sparkle') return '✨';
+  return '💫';
+}
+
+function getButtonSoundType(btn) {
+  if (btn.id === 'btn-submit') return 'sparkle';
+  if (btn.classList.contains('nav-btn') || btn.classList.contains('btn-home')) return 'nav';
+  if (btn.classList.contains('scale-btn')) return 'rating';
+  if (btn.classList.contains('emotion-btn') || btn.classList.contains('humeur-btn')) return 'emotion';
+  if (btn.classList.contains('btn-reward')) return 'reward';
+  return 'click';
+}
+
+function playClickSound(context, variant) {
+  const baseFrequency = {
+    click: 520,
+    nav: 480,
+    emotion: 600,
+    reward: 640
+  }[variant] || 520;
+
+  const frequency = baseFrequency + Math.random() * 40;
+  const duration = audioConfig.clickDuration;
+  playTone(context, frequency, duration, 'triangle', audioConfig.defaultVolume);
+}
+
+function playRatingSound(context, btn) {
+  const rating = Number(btn.dataset.value ?? 2);
+  const taskKey = getTaskKeyFromRatingButton(btn);
+  const taskBase = getTaskBaseFrequency(taskKey);
+  const moodOffset = getMoodOffsetForRating(rating);
+  const moodWave = rating <= 1 ? 'square' : rating === 2 ? 'triangle' : 'sine';
+  const duration = audioConfig.clickDuration + 0.02;
+  const frequency = taskBase + moodOffset;
+
+  console.info('Lecture son d’évaluation', { taskKey, rating, frequency, moodWave });
+  playTone(context, frequency, duration, moodWave, audioConfig.defaultVolume);
+
+  if (rating >= 3) {
+    playTone(context, frequency + 120, duration, 'sine', audioConfig.defaultVolume * 0.7);
+  } else if (rating === 0) {
+    playTone(context, frequency - 80, duration, 'sawtooth', audioConfig.defaultVolume * 0.6);
+  }
+}
+
+function getTaskKeyFromRatingButton(btn) {
+  const card = btn.closest('.task-card');
+  if (!card) return 'default';
+  return card.dataset.task || 'default';
+}
+
+function getTaskBaseFrequency(taskKey) {
+  const taskFrequencyMap = {
+    rangerChambre: 360,
+    faireLit: 380,
+    rangerJouets: 410,
+    aiderTable: 430,
+    ecouter: 450,
+    gentilSoeur: 470,
+    politesse: 490,
+    pasColere: 510,
+    dentsMatin: 530,
+    dentsSoir: 550,
+    habiller: 570,
+    cartable: 590,
+    default: 520
+  };
+
+  if (!taskFrequencyMap[taskKey]) {
+    console.warn('Tâche inconnue pour le son d’évaluation.', { taskKey });
+  }
+
+  return taskFrequencyMap[taskKey] ?? taskFrequencyMap.default;
+}
+
+function getMoodOffsetForRating(rating) {
+  if (Number.isNaN(rating)) {
+    console.warn('Note invalide pour le son d’évaluation.', { rating });
+    return 0;
+  }
+
+  const moodOffsets = [-160, -80, 0, 120, 200];
+  return moodOffsets[Math.max(0, Math.min(rating, moodOffsets.length - 1))];
+}
+
+function playSparkleSound(context) {
+  const now = context.currentTime;
+  playTone(context, 740, audioConfig.sparkleDuration, 'sine', audioConfig.defaultVolume, now);
+  playTone(context, 940, audioConfig.sparkleDuration, 'sine', audioConfig.defaultVolume * 0.8, now + 0.05);
+}
+
+function playTone(context, frequency, duration, waveType, volume, startTime = context.currentTime) {
+  const oscillator = context.createOscillator();
+  const gainNode = context.createGain();
+
+  oscillator.type = waveType;
+  oscillator.frequency.setValueAtTime(frequency, startTime);
+
+  gainNode.gain.setValueAtTime(0, startTime);
+  gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.02);
+  gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(context.destination);
+
+  oscillator.start(startTime);
+  oscillator.stop(startTime + duration + 0.02);
+}
 
 function resetForm() {
   taskRatings = {};
