@@ -18,6 +18,48 @@ function getParisMidnight(date) {
   return new Date(year, month - 1, day);
 }
 
+function parseSheetDate(value, context) {
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return new Date(value);
+  }
+
+  if (typeof value === 'string') {
+    const match = value.trim().match(
+      /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/
+    );
+    if (match) {
+      const [, day, month, year, hour = '00', minute = '00', second = '00'] = match;
+      return new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+      );
+    }
+  }
+
+  const fallback = new Date(value);
+  if (Number.isNaN(fallback.getTime())) {
+    Logger.log(`[parseSheetDate] Date invalide (${context}) : ${value}`);
+    return null;
+  }
+  return fallback;
+}
+
+function getParisDateKeyFromValue(value, context) {
+  const parsed = parseSheetDate(value, context);
+  if (!parsed) {
+    return null;
+  }
+  return getParisDateKey(parsed);
+}
+
 // ==================================================
 // WEB APP
 // ==================================================
@@ -93,11 +135,16 @@ function hasEvaluatedToday(personne) {
     const data = sheet.getDataRange().getValues().slice(1);
     
     const todayKey = getParisDateKey(new Date());
-    Logger.log(`[hasEvaluatedToday] Vérification Paris pour ${personne} (date=${todayKey}).`);
+    const personneKey = String(personne || '').trim();
+    Logger.log(`[hasEvaluatedToday] Vérification Paris pour ${personneKey} (date=${todayKey}).`);
     
     return data.some(row => {
-      const rowKey = getParisDateKey(new Date(row[1]));
-      return row[3] === personne && rowKey === todayKey;
+      const rowKey = getParisDateKeyFromValue(row[1], 'Évaluations.Date');
+      const rowPersonne = String(row[3] || '').trim();
+      if (!rowKey) {
+        return false;
+      }
+      return rowPersonne === personneKey && rowKey === todayKey;
     });
   } catch (error) {
     Logger.log(`[hasEvaluatedToday] Erreur lors de la vérification Paris pour ${personne} : ${error}`);
@@ -243,7 +290,8 @@ function getPersonneData(personne) {
     // Infos personne
     const personnesSheet = ss.getSheetByName('Personnes');
     const personnesData = personnesSheet.getDataRange().getValues().slice(1);
-    const personneInfo = personnesData.find(r => r[0] === personne);
+    const personneKey = String(personne || '').trim();
+    const personneInfo = personnesData.find(r => String(r[0] || '').trim() === personneKey);
     
     // Évaluations
     const evalSheet = ss.getSheetByName('Évaluations');
@@ -260,10 +308,14 @@ function getPersonneData(personne) {
     let weekDays = 0;
     let dailyScores = [null, null, null, null, null, null, null];
     
-    const personneEvals = evalData.filter(r => r[3] === personne);
+    const personneEvals = evalData.filter(r => String(r[3] || '').trim() === personneKey);
     
     personneEvals.forEach(row => {
-      const date = getParisMidnight(new Date(row[1]));
+      const parsedDate = parseSheetDate(row[1], 'Évaluations.Date');
+      if (!parsedDate) {
+        return;
+      }
+      const date = getParisMidnight(parsedDate);
       if (date >= weekStart && date <= weekEnd) {
         const total = row[24]; // Colonne TotalJour
         weekPoints += total;
@@ -275,13 +327,23 @@ function getPersonneData(personne) {
     
     // Streak (Paris)
     let streak = 0;
-    const sortedEvals = personneEvals.sort((a, b) => new Date(b[1]) - new Date(a[1]));
+    const sortedEvals = personneEvals.sort((a, b) => {
+      const dateA = parseSheetDate(a[1], 'Évaluations.Date');
+      const dateB = parseSheetDate(b[1], 'Évaluations.Date');
+      const timeA = dateA ? dateA.getTime() : 0;
+      const timeB = dateB ? dateB.getTime() : 0;
+      return timeB - timeA;
+    });
     
     if (sortedEvals.length > 0) {
       let checkDate = getParisMidnight(new Date());
       
       for (const eval of sortedEvals) {
-        const evalDate = getParisMidnight(new Date(eval[1]));
+        const parsedDate = parseSheetDate(eval[1], 'Évaluations.Date');
+        if (!parsedDate) {
+          continue;
+        }
+        const evalDate = getParisMidnight(parsedDate);
         const diffDays = Math.floor((checkDate - evalDate) / (1000 * 60 * 60 * 24));
         
         if (diffDays <= 1) {
@@ -298,16 +360,25 @@ function getPersonneData(personne) {
     const emotionSheet = ss.getSheetByName('Historique_Émotions');
     const emotionData = emotionSheet.getDataRange().getValues().slice(1);
     const recentEmotions = emotionData
-      .filter(r => r[1] === personne)
-      .sort((a, b) => new Date(b[0]) - new Date(a[0]))
+      .filter(r => String(r[1] || '').trim() === personneKey)
+      .sort((a, b) => {
+        const dateA = parseSheetDate(a[0], 'Historique_Émotions.Date');
+        const dateB = parseSheetDate(b[0], 'Historique_Émotions.Date');
+        const timeA = dateA ? dateA.getTime() : 0;
+        const timeB = dateB ? dateB.getTime() : 0;
+        return timeB - timeA;
+      })
       .slice(0, 7)
-      .map(r => ({
-        date: Utilities.formatDate(new Date(r[0]), PARIS_TIMEZONE, 'dd/MM'),
-        emotion1: r[2],
-        emotion2: r[3],
-        source: r[4],
-        gestion: r[5]
-      }));
+      .map(r => {
+        const parsedDate = parseSheetDate(r[0], 'Historique_Émotions.Date');
+        return {
+          date: parsedDate ? Utilities.formatDate(parsedDate, PARIS_TIMEZONE, 'dd/MM') : '—',
+          emotion1: r[2],
+          emotion2: r[3],
+          source: r[4],
+          gestion: r[5]
+        };
+      });
     
     // Badges
     const badgesObtSheet = ss.getSheetByName('Badges_Obtenus');
