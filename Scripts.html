@@ -527,9 +527,18 @@ function setGestion(value, btn) {
 }
 
 function setHumeur(emoji, btn) {
+  if (!btn) {
+    console.error('[setHumeur] Bouton de sélection introuvable pour l\'humeur.');
+    return;
+  }
+  if (!emoji) {
+    console.error('[setHumeur] Emoji d\'humeur manquant, sélection ignorée.');
+    return;
+  }
   document.querySelectorAll('.humeur-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   selectedHumeur = emoji;
+  console.info(`[setHumeur] Humeur sélectionnée : ${emoji}`);
   checkCanSubmit();
 }
 
