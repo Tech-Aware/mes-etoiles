@@ -18,6 +18,13 @@ let selectedEmotions = [];
 let selectedSource = null;
 let gestionScore = null;
 let selectedHumeur = null;
+let audioContext = null;
+
+const audioConfig = {
+  defaultVolume: 0.08,
+  clickDuration: 0.08,
+  sparkleDuration: 0.16
+};
 
 // ==================================================
 // INITIALISATION
@@ -25,7 +32,110 @@ let selectedHumeur = null;
 document.addEventListener('DOMContentLoaded', function() {
   loadPersonnes();
   resetForm();
+  setupBoutonAudio();
 });
+
+function setupBoutonAudio() {
+  document.addEventListener('click', event => {
+    const btn = event.target.closest('button');
+    if (!btn) return;
+
+    playButtonSound(btn);
+  });
+}
+
+function ensureAudioContext() {
+  if (audioContext) return audioContext;
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    console.warn('AudioContext non supporté : sons désactivés.');
+    return null;
+  }
+
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    console.info('AudioContext initialisé pour les effets sonores.');
+  } catch (error) {
+    console.error('Impossible d\'initialiser AudioContext.', error);
+    return null;
+  }
+
+  return audioContext;
+}
+
+function resumeAudioContext(context) {
+  if (!context) return;
+  if (context.state === 'suspended') {
+    context.resume().catch(error => {
+      console.error('Échec de reprise AudioContext.', error);
+    });
+  }
+}
+
+function playButtonSound(btn) {
+  const context = ensureAudioContext();
+  if (!context) return;
+
+  resumeAudioContext(context);
+
+  const soundType = getButtonSoundType(btn);
+  try {
+    if (soundType === 'sparkle') {
+      playSparkleSound(context);
+      return;
+    }
+
+    playClickSound(context, soundType);
+  } catch (error) {
+    console.error('Erreur lors de la lecture du son.', error);
+  }
+}
+
+function getButtonSoundType(btn) {
+  if (btn.id === 'btn-submit') return 'sparkle';
+  if (btn.classList.contains('nav-btn') || btn.classList.contains('btn-home')) return 'nav';
+  if (btn.classList.contains('scale-btn')) return 'rating';
+  if (btn.classList.contains('emotion-btn') || btn.classList.contains('humeur-btn')) return 'emotion';
+  if (btn.classList.contains('btn-reward')) return 'reward';
+  return 'click';
+}
+
+function playClickSound(context, variant) {
+  const baseFrequency = {
+    click: 520,
+    nav: 480,
+    rating: 560,
+    emotion: 600,
+    reward: 640
+  }[variant] || 520;
+
+  const frequency = baseFrequency + Math.random() * 40;
+  const duration = audioConfig.clickDuration;
+  playTone(context, frequency, duration, 'triangle', audioConfig.defaultVolume);
+}
+
+function playSparkleSound(context) {
+  const now = context.currentTime;
+  playTone(context, 740, audioConfig.sparkleDuration, 'sine', audioConfig.defaultVolume, now);
+  playTone(context, 940, audioConfig.sparkleDuration, 'sine', audioConfig.defaultVolume * 0.8, now + 0.05);
+}
+
+function playTone(context, frequency, duration, waveType, volume, startTime = context.currentTime) {
+  const oscillator = context.createOscillator();
+  const gainNode = context.createGain();
+
+  oscillator.type = waveType;
+  oscillator.frequency.setValueAtTime(frequency, startTime);
+
+  gainNode.gain.setValueAtTime(0, startTime);
+  gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.02);
+  gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(context.destination);
+
+  oscillator.start(startTime);
+  oscillator.stop(startTime + duration + 0.02);
+}
 
 function resetForm() {
   taskRatings = {};
