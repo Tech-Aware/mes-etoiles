@@ -237,6 +237,8 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const totalRituels = taches.dentsMatin + taches.dentsSoir + taches.habiller + taches.cartable;
     const totalEmotions = emotions.gestion;
     const totalJour = totalCorvees + totalComportement + totalRituels + totalEmotions;
+
+    Logger.log(`[submitEvaluation] Totaux calculés pour ${personne} : corvées=${totalCorvees}, comportement=${totalComportement}, rituels=${totalRituels}, émotions=${totalEmotions}, totalJour=${totalJour}.`);
     
     Logger.log(`[submitEvaluation] Ajout évaluation ${newId} pour ${personne} (Paris=${getParisDateKey(now)}).`);
     
@@ -285,8 +287,8 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const newBadges = checkBadges(personne);
     
     // Message selon score
-    const maxPoints = 26;
-    const percent = Math.round((totalJour / maxPoints) * 100);
+    const maxPoints = 13;
+    const percent = Math.max(0, Math.round((totalJour / maxPoints) * 100));
     
     let message, stars;
     if (percent >= 90) {
