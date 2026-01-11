@@ -78,15 +78,11 @@ body { font-family: 'Nunito', sans-serif; background: linear-gradient(135deg, #a
 .scale-btn:hover { transform: scale(1.05); }
 .scale-btn[data-value="0"] { border-color: #ffebee; background: #fff5f5; }
 .scale-btn[data-value="1"] { border-color: #fff3e0; background: #fffaf5; }
-.scale-btn[data-value="2"] { border-color: #fffde7; background: #fffef5; }
-.scale-btn[data-value="3"] { border-color: #e8f5e9; background: #f5fff5; }
-.scale-btn[data-value="4"] { border-color: #e0f7fa; background: #f0ffff; }
+.scale-btn[data-value="2"] { border-color: #e8f5e9; background: #f5fff5; }
 .scale-btn.selected { transform: scale(1.1); box-shadow: 0 5px 20px rgba(0,0,0,0.15); }
 .scale-btn.selected[data-value="0"] { background: var(--red); border-color: var(--red); }
 .scale-btn.selected[data-value="1"] { background: var(--orange); border-color: var(--orange); }
-.scale-btn.selected[data-value="2"] { background: var(--yellow); border-color: var(--yellow); }
-.scale-btn.selected[data-value="3"] { background: #2ECC71; border-color: #2ECC71; }
-.scale-btn.selected[data-value="4"] { background: var(--green); border-color: var(--green); }
+.scale-btn.selected[data-value="2"] { background: var(--green); border-color: var(--green); }
 .scale-btn.selected .scale-emoji { filter: grayscale(100%) brightness(200%); }
 .scale-emoji { font-size: 28px; display: block; }
 
@@ -115,6 +111,9 @@ body { font-family: 'Nunito', sans-serif; background: linear-gradient(135deg, #a
 .selected-emotion-tag { background: linear-gradient(135deg, var(--purple), var(--pink)); color: white; padding: 8px 15px; border-radius: 20px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 
 /* SOURCES */
+.sources-by-emotion { display: flex; flex-direction: column; gap: 20px; }
+.source-emotion-block { background: #fdf6ff; border-radius: 18px; padding: 15px; border: 2px dashed rgba(162,155,254,0.35); }
+.source-emotion-title { font-size: 14px; font-weight: 800; color: #5f27cd; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 .sources-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .source-btn { background: #f8f9fa; border: 3px solid transparent; border-radius: 15px; padding: 15px 10px; cursor: pointer; transition: all 0.2s; text-align: center; }
 .source-btn:hover { transform: scale(1.05); }
@@ -129,9 +128,7 @@ body { font-family: 'Nunito', sans-serif; background: linear-gradient(135deg, #a
 .gestion-btn.selected { transform: scale(1.1); box-shadow: 0 5px 20px rgba(0,0,0,0.15); }
 .gestion-btn.selected[data-value="0"] { background: var(--red); border-color: var(--red); color: white; }
 .gestion-btn.selected[data-value="1"] { background: var(--orange); border-color: var(--orange); color: white; }
-.gestion-btn.selected[data-value="2"] { background: var(--yellow); border-color: var(--yellow); }
-.gestion-btn.selected[data-value="3"] { background: #2ECC71; border-color: #2ECC71; color: white; }
-.gestion-btn.selected[data-value="4"] { background: var(--green); border-color: var(--green); color: white; }
+.gestion-btn.selected[data-value="2"] { background: var(--green); border-color: var(--green); color: white; }
 .gestion-emoji { font-size: 30px; display: block; margin-bottom: 5px; }
 .gestion-label { font-size: 11px; font-weight: 700; }
 
@@ -155,7 +152,7 @@ body { font-family: 'Nunito', sans-serif; background: linear-gradient(135deg, #a
 #preview-score { font-size: 60px; font-weight: 900; background: linear-gradient(135deg, var(--yellow), var(--orange)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .preview-max { font-size: 24px; color: #888; }
 .preview-bar { height: 20px; background: #eee; border-radius: 15px; overflow: hidden; margin-bottom: 15px; }
-.preview-fill { height: 100%; background: linear-gradient(90deg, var(--red), var(--orange), var(--yellow), var(--green)); border-radius: 15px; transition: width 0.3s ease; width: 0%; }
+.preview-fill { height: 100%; background: linear-gradient(90deg, var(--red), var(--orange), var(--green)); border-radius: 15px; transition: width 0.3s ease; width: 0%; }
 .preview-message { font-size: 14px; color: #888; font-weight: 600; }
 
 /* SUBMIT BUTTON */
