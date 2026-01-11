@@ -13,9 +13,12 @@ const allTasks = [
   'dentsMatin', 'dentsSoir', 'habiller', 'cartable'
 ];
 
-const MAX_TASK_SCORE = 2;
-const MAX_GESTION_SCORE = 2;
+const MAX_TASK_SCORE = 1;
+const MIN_TASK_SCORE = -1;
+const MAX_GESTION_SCORE = 1;
+const MIN_GESTION_SCORE = -1;
 const MAX_POINTS = allTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
+const MIN_POINTS = allTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
 
 const emotionSources = [
   { emoji: '🏠', name: 'Maison' },
@@ -421,6 +424,10 @@ function showPage(pageName) {
 // ÉVALUATION - TÂCHES
 // ==================================================
 function setTaskRating(taskId, value, btn) {
+  if (![MIN_TASK_SCORE, 0, MAX_TASK_SCORE].includes(value)) {
+    console.warn('[setTaskRating] Valeur de tâche inattendue, sélection ignorée.', { taskId, value });
+    return;
+  }
   taskRatings[taskId] = value;
   
   const scale = btn.closest('.rating-scale');
@@ -519,6 +526,10 @@ function selectSourceForEmotion(emotionEmoji, sourceEmoji, sourceName, btn) {
 }
 
 function setGestion(value, btn) {
+  if (![MIN_GESTION_SCORE, 0, MAX_GESTION_SCORE].includes(value)) {
+    console.warn('[setGestion] Valeur de gestion inattendue, sélection ignorée.', { value });
+    return;
+  }
   document.querySelectorAll('.gestion-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   gestionScore = value;
@@ -561,9 +572,12 @@ function updatePreview() {
   }
   
   document.getElementById('preview-score').textContent = total;
-  document.getElementById('preview-fill').style.width = (total / MAX_POINTS * 100) + '%';
+  const normalized = (total - MIN_POINTS) / (MAX_POINTS - MIN_POINTS);
+  const fillPercent = Math.max(0, Math.min(100, Math.round(normalized * 100)));
+  document.getElementById('preview-fill').style.width = fillPercent + '%';
   
-  const percent = Math.round((total / MAX_POINTS) * 100);
+  const rawPercent = Math.round((total / MAX_POINTS) * 100);
+  const percent = Math.max(0, Math.min(100, rawPercent));
   let message = '';
   
   if (filledTasks < allTasks.length) {
@@ -691,7 +705,8 @@ function loadStatsPage() {
   
   document.getElementById('stats-week-points').textContent = userData.weekPoints;
   const maxWeek = MAX_POINTS * 7;
-  document.getElementById('stats-week-fill').style.width = (userData.weekPoints / maxWeek * 100) + '%';
+  const weekFill = Math.max(0, Math.min(100, Math.round((userData.weekPoints / maxWeek) * 100)));
+  document.getElementById('stats-week-fill').style.width = weekFill + '%';
   document.getElementById('stats-streak').textContent = userData.streak;
   
   const daysContainer = document.getElementById('stats-days');
