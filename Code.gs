@@ -213,6 +213,19 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       Logger.log(`[submitEvaluation] Évaluation déjà faite aujourd'hui (Paris) pour ${personne}.`);
       return { success: false, message: 'Tu as déjà fait ton évaluation aujourd\'hui ! 😊' };
     }
+
+    const emotionPairs = [
+      { emotion: emotions.emotion1, source: emotions.source1, label: 'emotion1' },
+      { emotion: emotions.emotion2, source: emotions.source2, label: 'emotion2' },
+      { emotion: emotions.emotion3, source: emotions.source3, label: 'emotion3' }
+    ];
+    const missingSources = emotionPairs
+      .filter(pair => pair.emotion && !pair.source)
+      .map(pair => pair.label);
+    if (missingSources.length > 0) {
+      Logger.log(`[submitEvaluation] Sources manquantes pour ${personne} : ${missingSources.join(', ')}`);
+      return { success: false, message: 'Choisis une cause pour chaque émotion, s’il te plaît.' };
+    }
     
     const lastRow = sheet.getLastRow();
     const newId = 'E' + String(lastRow).padStart(4, '0');
@@ -249,7 +262,10 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       // Émotions
       emotions.emotion1,
       emotions.emotion2 || '',
-      emotions.source,
+      emotions.emotion3 || '',
+      emotions.source1 || '',
+      emotions.source2 || '',
+      emotions.source3 || '',
       emotions.gestion,
       // Totaux
       totalCorvees,
@@ -269,7 +285,7 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const newBadges = checkBadges(personne);
     
     // Message selon score
-    const maxPoints = 52;
+    const maxPoints = 26;
     const percent = Math.round((totalJour / maxPoints) * 100);
     
     let message, stars;
@@ -323,7 +339,10 @@ function saveEmotionHistory(personne, emotions) {
     personne,
     emotions.emotion1,
     emotions.emotion2 || '',
-    emotions.source,
+    emotions.emotion3 || '',
+    emotions.source1 || '',
+    emotions.source2 || '',
+    emotions.source3 || '',
     emotions.gestion,
     ''
   ]);
@@ -366,7 +385,7 @@ function getPersonneData(personne) {
       }
       const date = getParisMidnight(parsedDate);
       if (date >= weekStart && date <= weekEnd) {
-        const total = row[24]; // Colonne TotalJour
+        const total = row[27]; // Colonne TotalJour
         weekPoints += total;
         weekDays++;
         const dayIndex = date.getDay() === 0 ? 6 : date.getDay() - 1;
@@ -424,8 +443,11 @@ function getPersonneData(personne) {
           date: parsedDate ? Utilities.formatDate(parsedDate, PARIS_TIMEZONE, 'dd/MM') : '—',
           emotion1: r[2],
           emotion2: r[3],
-          source: r[4],
-          gestion: r[5]
+          emotion3: r[4],
+          source1: r[5],
+          source2: r[6],
+          source3: r[7],
+          gestion: r[8]
         };
       });
     
@@ -559,16 +581,16 @@ function checkBadges(personne) {
     }
   }
   
-  // B06 - Journée parfaite (52/52)
-  const hasPerfect = evals.some(r => r[24] >= 50);
+  // B06 - Journée parfaite (26/26)
+  const hasPerfect = evals.some(r => r[27] >= 26);
   if (hasPerfect && !data.badges.some(b => b.id === 'B06')) {
     if (awardBadge(personne, 'B06')) {
       newBadges.push({ id: 'B06', nom: 'Journée parfaite', emoji: '🌟' });
     }
   }
   
-  // B08 - Zen master (5x gestion émotions = 4)
-  const goodGestion = evals.filter(r => r[19] === 4).length;
+  // B08 - Zen master (5x gestion émotions = 2)
+  const goodGestion = evals.filter(r => r[22] === 2).length;
   if (goodGestion >= 5 && !data.badges.some(b => b.id === 'B08')) {
     if (awardBadge(personne, 'B08')) {
       newBadges.push({ id: 'B08', nom: 'Zen master', emoji: '🧘' });

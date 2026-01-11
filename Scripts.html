@@ -13,9 +13,22 @@ const allTasks = [
   'dentsMatin', 'dentsSoir', 'habiller', 'cartable'
 ];
 
+const MAX_TASK_SCORE = 2;
+const MAX_GESTION_SCORE = 2;
+const MAX_POINTS = allTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
+
+const emotionSources = [
+  { emoji: '🏠', name: 'Maison' },
+  { emoji: '🏫', name: 'École' },
+  { emoji: '👫', name: 'Copains' },
+  { emoji: '👭', name: 'Sœur' },
+  { emoji: '👨‍👩‍👧', name: 'Parents' },
+  { emoji: '⚽', name: 'Activité' }
+];
+
 let taskRatings = {};
 let selectedEmotions = [];
-let selectedSource = null;
+let selectedSourcesByEmotion = {};
 let gestionScore = null;
 let selectedHumeur = null;
 let audioContext = null;
@@ -174,21 +187,11 @@ function playRatingSound(context, btn) {
   }
 
   if (rating === 1) {
-    playLowMoodSound(context, frequency, duration);
-    return;
-  }
-
-  if (rating === 2) {
     playNeutralSound(context, frequency, duration);
     return;
   }
 
-  if (rating === 3) {
-    playHappySound(context, frequency, duration);
-    return;
-  }
-
-  playSuperHappySound(context, frequency, duration);
+  playHappySound(context, frequency, duration);
 }
 
 function getTaskKeyFromRatingButton(btn) {
@@ -227,7 +230,7 @@ function getMoodOffsetForRating(rating) {
     return 0;
   }
 
-  const moodOffsets = [-220, -120, 0, 140, 260];
+  const moodOffsets = [-200, 0, 180];
   return moodOffsets[Math.max(0, Math.min(rating, moodOffsets.length - 1))];
 }
 
@@ -306,7 +309,7 @@ function resetForm() {
   taskRatings = {};
   allTasks.forEach(t => taskRatings[t] = null);
   selectedEmotions = [];
-  selectedSource = null;
+  selectedSourcesByEmotion = {};
   gestionScore = null;
   selectedHumeur = null;
 }
@@ -379,6 +382,8 @@ function resetFormUI() {
   document.querySelectorAll('.gestion-btn').forEach(btn => btn.classList.remove('selected'));
   document.querySelectorAll('.humeur-btn').forEach(btn => btn.classList.remove('selected'));
   document.getElementById('selected-emotions').innerHTML = '';
+  document.getElementById('sources-by-emotion').innerHTML = '';
+  renderSourcesByEmotion();
   document.getElementById('preview-score').textContent = '0';
   document.getElementById('preview-fill').style.width = '0%';
   document.getElementById('preview-message').textContent = 'Remplis toutes les cases !';
@@ -435,19 +440,21 @@ function toggleEmotion(emoji, name, btn) {
   if (index > -1) {
     // Retirer
     selectedEmotions.splice(index, 1);
+    delete selectedSourcesByEmotion[emoji];
     btn.classList.remove('selected');
   } else {
-    // Ajouter (max 2)
-    if (selectedEmotions.length < 2) {
+    // Ajouter (max 3)
+    if (selectedEmotions.length < 3) {
       selectedEmotions.push({ emoji, name });
       btn.classList.add('selected');
     } else {
-      showToast('Maximum 2 émotions !', 'error');
+      showToast('Maximum 3 émotions !', 'error');
       return;
     }
   }
   
   updateSelectedEmotionsDisplay();
+  renderSourcesByEmotion();
   checkCanSubmit();
 }
 
@@ -467,10 +474,47 @@ function updateSelectedEmotionsDisplay() {
   `).join('');
 }
 
-function selectSource(emoji, name, btn) {
-  document.querySelectorAll('.source-btn').forEach(b => b.classList.remove('selected'));
+function renderSourcesByEmotion() {
+  const container = document.getElementById('sources-by-emotion');
+
+  if (selectedEmotions.length === 0) {
+    container.innerHTML = '<p class="emotion-hint">Commence par choisir tes émotions.</p>';
+    return;
+  }
+
+  container.innerHTML = selectedEmotions.map(emotion => {
+    const selectedSource = selectedSourcesByEmotion[emotion.emoji]?.emoji;
+    const buttons = emotionSources.map(source => `
+      <button class="source-btn ${selectedSource === source.emoji ? 'selected' : ''}"
+              data-emotion="${emotion.emoji}"
+              data-source="${source.emoji}"
+              onclick="selectSourceForEmotion('${emotion.emoji}', '${source.emoji}', '${source.name}', this)">
+        <span class="source-icon">${source.emoji}</span>
+        <span class="source-name">${source.name}</span>
+      </button>
+    `).join('');
+
+    return `
+      <div class="source-emotion-block">
+        <div class="source-emotion-title">${emotion.emoji} ${emotion.name}</div>
+        <div class="sources-grid">${buttons}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function selectSourceForEmotion(emotionEmoji, sourceEmoji, sourceName, btn) {
+  const block = btn.closest('.source-emotion-block');
+  if (!block) {
+    console.warn('Bloc source introuvable pour la sélection.', { emotionEmoji, sourceEmoji });
+    return;
+  }
+
+  block.querySelectorAll('.source-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
-  selectedSource = { emoji, name };
+
+  selectedSourcesByEmotion[emotionEmoji] = { emoji: sourceEmoji, name: sourceName };
+  console.info('Source sélectionnée pour émotion.', { emotionEmoji, sourceEmoji, sourceName });
   checkCanSubmit();
 }
 
@@ -508,13 +552,13 @@ function updatePreview() {
   }
   
   document.getElementById('preview-score').textContent = total;
-  document.getElementById('preview-fill').style.width = (total / 52 * 100) + '%';
+  document.getElementById('preview-fill').style.width = (total / MAX_POINTS * 100) + '%';
   
-  const percent = Math.round((total / 52) * 100);
+  const percent = Math.round((total / MAX_POINTS) * 100);
   let message = '';
   
-  if (filledTasks < 12) {
-    message = `Encore ${12 - filledTasks} cases à remplir !`;
+  if (filledTasks < allTasks.length) {
+    message = `Encore ${allTasks.length - filledTasks} cases à remplir !`;
   } else if (gestionScore === null) {
     message = 'N\'oublie pas les émotions !';
   } else if (percent >= 90) {
@@ -533,7 +577,7 @@ function updatePreview() {
 function checkCanSubmit() {
   const allTasksFilled = allTasks.every(t => taskRatings[t] !== null);
   const emotionsOk = selectedEmotions.length >= 1;
-  const sourceOk = selectedSource !== null;
+  const sourceOk = selectedEmotions.every(e => selectedSourcesByEmotion[e.emoji]);
   const gestionOk = gestionScore !== null;
   const humeurOk = selectedHumeur !== null;
   
@@ -553,7 +597,10 @@ function submitEvaluation() {
   const emotions = {
     emotion1: selectedEmotions[0] ? selectedEmotions[0].emoji : '',
     emotion2: selectedEmotions[1] ? selectedEmotions[1].emoji : '',
-    source: selectedSource ? selectedSource.emoji : '',
+    emotion3: selectedEmotions[2] ? selectedEmotions[2].emoji : '',
+    source1: selectedEmotions[0] ? (selectedSourcesByEmotion[selectedEmotions[0].emoji]?.emoji || '') : '',
+    source2: selectedEmotions[1] ? (selectedSourcesByEmotion[selectedEmotions[1].emoji]?.emoji || '') : '',
+    source3: selectedEmotions[2] ? (selectedSourcesByEmotion[selectedEmotions[2].emoji]?.emoji || '') : '',
     gestion: gestionScore
   };
   
@@ -634,7 +681,7 @@ function loadStatsPage() {
   if (!userData) return;
   
   document.getElementById('stats-week-points').textContent = userData.weekPoints;
-  const maxWeek = 52 * 7;
+  const maxWeek = MAX_POINTS * 7;
   document.getElementById('stats-week-fill').style.width = (userData.weekPoints / maxWeek * 100) + '%';
   document.getElementById('stats-streak').textContent = userData.streak;
   
@@ -644,8 +691,8 @@ function loadStatsPage() {
   daysContainer.innerHTML = userData.dailyScores.map((score, i) => {
     let classe = '';
     if (score !== null) {
-      if (score >= 45) classe = 'perfect';
-      else if (score >= 30) classe = 'good';
+      if (score >= Math.round(MAX_POINTS * 0.85)) classe = 'perfect';
+      else if (score >= Math.round(MAX_POINTS * 0.6)) classe = 'good';
       else classe = 'low';
     }
     return `
@@ -661,14 +708,15 @@ function loadStatsPage() {
   if (userData.recentEmotions && userData.recentEmotions.length > 0) {
     emotionsContainer.innerHTML = userData.recentEmotions.map(e => {
       let gestionClass = 'gestion-ok';
-      if (e.gestion >= 3) gestionClass = 'gestion-good';
-      else if (e.gestion <= 1) gestionClass = 'gestion-bad';
+      if (e.gestion >= 2) gestionClass = 'gestion-good';
+      else if (e.gestion <= 0) gestionClass = 'gestion-bad';
+      const emotionList = [e.emotion1, e.emotion2, e.emotion3].filter(Boolean).join(' ');
       
       return `
         <div class="emotion-history-item">
           <div class="emotion-history-date">${e.date}</div>
-          <div class="emotion-history-emotions">${e.emotion1} ${e.emotion2 || ''}</div>
-          <div class="emotion-history-gestion ${gestionClass}">${e.gestion}/4</div>
+          <div class="emotion-history-emotions">${emotionList}</div>
+          <div class="emotion-history-gestion ${gestionClass}">${e.gestion}/2</div>
         </div>
       `;
     }).join('');
