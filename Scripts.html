@@ -320,21 +320,29 @@ function resetForm() {
   selectedHumeur = null;
 }
 
-function setActiveTasks(taskIds) {
-  if (!Array.isArray(taskIds) || taskIds.length === 0) {
-    console.warn('[setActiveTasks] Liste des tâches vide ou invalide, retour à la liste par défaut.');
+function setActiveTasks(taskIds, allowEmpty = false) {
+  if (!Array.isArray(taskIds)) {
+    console.warn('[setActiveTasks] Liste des tâches invalide, retour à la liste par défaut.', { taskIds });
     activeTasks = [...BASE_TASKS];
+  } else if (taskIds.length === 0) {
+    if (allowEmpty) {
+      console.info('[setActiveTasks] Aucune tâche assignée détectée, liste vide conservée.');
+      activeTasks = [];
+    } else {
+      console.warn('[setActiveTasks] Liste des tâches vide, retour à la liste par défaut.');
+      activeTasks = [...BASE_TASKS];
+    }
   } else {
     activeTasks = taskIds.filter(taskId => BASE_TASKS.includes(taskId));
     if (activeTasks.length === 0) {
-      console.warn('[setActiveTasks] Aucune tâche reconnue, retour à la liste par défaut.');
+      console.warn('[setActiveTasks] Aucune tâche reconnue, retour à la liste par défaut.', { taskIds });
       activeTasks = [...BASE_TASKS];
     }
   }
 
   maxPoints = activeTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
   minPoints = activeTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
-  console.info('[setActiveTasks] Tâches actives mises à jour.', { activeTasks, maxPoints, minPoints });
+  console.info('[setActiveTasks] Tâches actives mises à jour.', { activeTasks, maxPoints, minPoints, allowEmpty });
 }
 
 function applyTaskVisibility() {
@@ -430,11 +438,12 @@ function loadTaskAssignments(personne) {
   google.script.run
     .withSuccessHandler(response => {
       const taskIds = response?.taskIds ?? [];
-      setActiveTasks(taskIds);
+      const allowEmpty = response?.allowEmpty ?? false;
+      setActiveTasks(taskIds, allowEmpty);
       applyTaskVisibility();
       resetForm();
       resetFormUI();
-      console.info('[loadTaskAssignments] Tâches chargées pour la personne.', { personne, taskIds });
+      console.info('[loadTaskAssignments] Tâches chargées pour la personne.', { personne, taskIds, allowEmpty, reason: response?.reason });
     })
     .withFailureHandler(error => {
       console.error('[loadTaskAssignments] Échec du chargement des tâches assignées.', error);

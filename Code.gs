@@ -193,11 +193,13 @@ function getSources() {
 // ==================================================
 function getTachesPourPersonne(personne) {
   try {
-    const assignedTasks = getTachesAssigneesPourPersonne_(personne);
-    Logger.log(`[getTachesPourPersonne] Tâches filtrées pour ${personne} : ${JSON.stringify(assignedTasks)}`);
+    const result = getTachesAssigneesPourPersonne_(personne);
+    Logger.log(`[getTachesPourPersonne] Tâches filtrées pour ${personne} : ${JSON.stringify(result.taskIds)}`);
     return {
       personne: String(personne || '').trim(),
-      taskIds: assignedTasks,
+      taskIds: result.taskIds,
+      allowEmpty: result.allowEmpty,
+      reason: result.reason,
       allTaskIds: TASK_IDS
     };
   } catch (error) {
@@ -210,19 +212,19 @@ function getTachesAssigneesPourPersonne_(personne) {
   const personneKey = String(personne || '').trim();
   if (!personneKey) {
     Logger.log('[getTachesAssigneesPourPersonne] Personne non renseignée, retour de la liste par défaut.');
-    return [...TASK_IDS];
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'personne_absente' };
   }
   const ss = SpreadsheetApp.openById(SS_ID);
   const sheet = ss.getSheetByName('Tâches');
   if (!sheet) {
     Logger.log('[getTachesAssigneesPourPersonne] Feuille Tâches introuvable, retour de la liste par défaut.');
-    return [...TASK_IDS];
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'feuille_absente' };
   }
 
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) {
     Logger.log('[getTachesAssigneesPourPersonne] Feuille Tâches vide, retour de la liste par défaut.');
-    return [...TASK_IDS];
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'feuille_vide' };
   }
 
   const headers = data[0].map(value => String(value || '').trim());
@@ -232,7 +234,7 @@ function getTachesAssigneesPourPersonne_(personne) {
 
   if (idIndex === -1) {
     Logger.log('[getTachesAssigneesPourPersonne] Colonne ID manquante, retour de la liste par défaut.');
-    return [...TASK_IDS];
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'id_manquant' };
   }
 
   const assignedTasks = [];
@@ -281,7 +283,9 @@ function getTachesAssigneesPourPersonne_(personne) {
     }
   });
 
-  return assignedTasks.length > 0 ? assignedTasks : [...TASK_IDS];
+  const reason = assignedTasks.length > 0 ? 'filtrage_ok' : 'aucune_tache';
+  Logger.log(`[getTachesAssigneesPourPersonne] Résultat ${reason} pour ${personneKey} : ${JSON.stringify(assignedTasks)}`);
+  return { taskIds: assignedTasks, allowEmpty: true, reason };
 }
 
 // ==================================================
@@ -341,7 +345,8 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const newId = 'E' + String(lastRow).padStart(4, '0');
     const now = new Date();
     
-    const assignedTasks = getTachesAssigneesPourPersonne_(personne);
+    const assignedResult = getTachesAssigneesPourPersonne_(personne);
+    const assignedTasks = assignedResult.taskIds;
     const assignedSet = new Set(assignedTasks);
     const safeTaskValue = (taskKey) => {
       const value = Number(taches && taches[taskKey]);
@@ -426,7 +431,7 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const newBadges = checkBadges(personne);
     
     // Message selon score
-    const baseTaskCount = assignedTasks.length > 0 ? assignedTasks.length : TASK_IDS.length;
+    const baseTaskCount = assignedTasks.length;
     const maxPoints = baseTaskCount + 1;
     const percent = Math.max(0, Math.round((totalJour / maxPoints) * 100));
     
