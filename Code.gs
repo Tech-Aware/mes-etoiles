@@ -27,6 +27,14 @@ const TASK_CATEGORY_KEYS = {
   autres: 'autres'
 };
 
+const DAILY_REWARDS_SHEET_NAME = 'Récompenses_Journalières';
+const DAILY_REWARDS_HEADERS = ['ID', 'Date', 'Personne', 'Récompense', 'Catégorie'];
+const DAILY_REWARD_CONFIG = {
+  minPercent: 75,
+  maxPercent: 80,
+  categories: ['ecran', 'gourmandise']
+};
+
 // ==================================================
 // CONFIGURATION - COLONNE JOURS (TÂCHES)
 // ==================================================
@@ -196,6 +204,67 @@ function normaliserTexte_(valeur) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+function calculerPourcentage_(total, maxPoints) {
+  if (!Number.isFinite(maxPoints) || maxPoints <= 0) {
+    Logger.log(`[calculerPourcentage] maxPoints invalide (${maxPoints}), retour à 0%.`);
+    return 0;
+  }
+  const brut = Math.round((Number(total) / maxPoints) * 100);
+  return Math.max(0, brut);
+}
+
+function getMaxPointsParJour_(personne) {
+  try {
+    const assigned = getTachesAssigneesPourPersonne_(personne);
+    const taskCount = assigned.taskIds.length;
+    const maxPoints = Math.max(1, taskCount + 1);
+    Logger.log(`[getMaxPointsParJour] ${personne} : ${taskCount} tâches, maxPoints=${maxPoints}.`);
+    return { maxPoints, taskCount };
+  } catch (error) {
+    Logger.log(`[getMaxPointsParJour] Erreur pour ${personne} : ${error}`);
+    return { maxPoints: 1, taskCount: 0 };
+  }
+}
+
+function calculerCoutRecompense_(coutBase, maxWeekPoints) {
+  const base = Number(coutBase);
+  if (Number.isNaN(base) || base <= 0) {
+    Logger.log(`[calculerCoutRecompense] Coût base invalide (${coutBase}), retour à 0.`);
+    return 0;
+  }
+  if (!Number.isFinite(maxWeekPoints) || maxWeekPoints <= 0) {
+    Logger.log(`[calculerCoutRecompense] maxWeekPoints invalide (${maxWeekPoints}), retour au coût base.`);
+    return Math.round(base);
+  }
+  const cout = Math.max(1, Math.round((base / 100) * maxWeekPoints));
+  Logger.log(`[calculerCoutRecompense] Coût base ${base} => coût ajusté ${cout} (maxWeekPoints=${maxWeekPoints}).`);
+  return cout;
+}
+
+function getDailyRewardsSheet_() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  let sheet = ss.getSheetByName(DAILY_REWARDS_SHEET_NAME);
+  if (!sheet) {
+    Logger.log(`[getDailyRewardsSheet] Feuille "${DAILY_REWARDS_SHEET_NAME}" absente, création.`);
+    sheet = ss.insertSheet(DAILY_REWARDS_SHEET_NAME);
+    sheet.getRange(1, 1, 1, DAILY_REWARDS_HEADERS.length).setValues([DAILY_REWARDS_HEADERS]);
+  }
+  return sheet;
+}
+
+function hasClaimedDailyRewardToday_(personne) {
+  const sheet = getDailyRewardsSheet_();
+  const data = sheet.getDataRange().getValues().slice(1);
+  const todayKey = getParisDateKey(new Date());
+  const personneKey = String(personne || '').trim();
+  const claimed = data.some(row => {
+    const rowKey = getParisDateKeyFromValue(row[1], `${DAILY_REWARDS_SHEET_NAME}.Date`);
+    return rowKey === todayKey && String(row[2] || '').trim() === personneKey;
+  });
+  Logger.log(`[hasClaimedDailyRewardToday] ${personneKey} (date=${todayKey}) => ${claimed}.`);
+  return claimed;
 }
 
 function normaliserCategorieTache_(categorie) {
@@ -880,6 +949,10 @@ function getPersonneData(personne) {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
     weekEnd.setHours(23, 59, 59);
+
+    const maxPointsData = getMaxPointsParJour_(personneKey);
+    const maxPointsJour = maxPointsData.maxPoints;
+    const maxPointsWeek = maxPointsJour * 7;
     
     let weekPoints = 0;
     let weekDays = 0;
@@ -977,12 +1050,38 @@ function getPersonneData(personne) {
     const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
     const rewards = rewardsData
       .filter(r => r[5] === 'Oui')
+      .map(r => {
+        const cout = calculerCoutRecompense_(r[3], maxPointsWeek);
+        return {
+          id: r[0],
+          nom: r[1],
+          emoji: r[2],
+          cout: cout,
+          disponible: weekPoints >= cout
+        };
+      });
+
+    const todayKey = getParisDateKey(new Date());
+    const todayEval = personneEvals.find(row => {
+      const rowKey = getParisDateKeyFromValue(row[1], 'Évaluations.Date');
+      return rowKey === todayKey;
+    });
+    const todayTotal = todayEval ? Number(todayEval[27]) : null;
+    const todayPercent = Number.isFinite(todayTotal) ? calculerPourcentage_(todayTotal, maxPointsJour) : null;
+
+    const dailyRewardClaimed = hasClaimedDailyRewardToday_(personneKey);
+    const dailyRewardEligible = todayPercent !== null
+      && todayPercent >= DAILY_REWARD_CONFIG.minPercent
+      && todayPercent <= DAILY_REWARD_CONFIG.maxPercent;
+
+    const dailyRewardOptions = rewardsData
+      .filter(r => r[5] === 'Oui')
+      .filter(r => DAILY_REWARD_CONFIG.categories.includes(normaliserTexte_(r[4])))
       .map(r => ({
         id: r[0],
         nom: r[1],
         emoji: r[2],
-        cout: r[3],
-        disponible: weekPoints >= r[3]
+        categorie: r[4]
       }));
     
     return {
@@ -997,6 +1096,14 @@ function getPersonneData(personne) {
       recentEmotions: recentEmotions,
       badges: badges,
       rewards: rewards,
+      maxPointsJour: maxPointsJour,
+      maxPointsWeek: maxPointsWeek,
+      dailyReward: {
+        eligible: dailyRewardEligible,
+        claimed: dailyRewardClaimed,
+        percent: todayPercent,
+        options: dailyRewardOptions
+      },
       evaluatedToday: hasEvaluatedToday(personne),
       weekStart: Utilities.formatDate(weekStart, PARIS_TIMEZONE, 'dd/MM'),
       weekEnd: Utilities.formatDate(weekEnd, PARIS_TIMEZONE, 'dd/MM')
@@ -1040,9 +1147,12 @@ function claimReward(personne, rewardId) {
   if (!reward) {
     return { success: false, message: 'Récompense introuvable 😕' };
   }
+
+  const maxPointsWeek = Number(data.maxPointsWeek) || 0;
+  const rewardCost = calculerCoutRecompense_(reward[3], maxPointsWeek);
   
-  if (data.weekPoints < reward[3]) {
-    return { success: false, message: `Il te manque ${reward[3] - data.weekPoints} étoiles 😢` };
+  if (data.weekPoints < rewardCost) {
+    return { success: false, message: `Il te manque ${rewardCost - data.weekPoints} étoiles 😢` };
   }
   
   const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
@@ -1053,7 +1163,7 @@ function claimReward(personne, rewardId) {
     new Date(),
     personne,
     reward[1],
-    reward[3],
+    rewardCost,
     'En attente',
     '',
     ''
@@ -1063,6 +1173,85 @@ function claimReward(personne, rewardId) {
     success: true, 
     message: `🎉 Super ! "${reward[1]}" demandé !`
   };
+}
+
+// ==================================================
+// RÉCLAMER RÉCOMPENSE JOURNALIÈRE
+// ==================================================
+function claimDailyReward(personne, rewardId) {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const personneKey = String(personne || '').trim();
+
+    if (!hasEvaluatedToday(personneKey)) {
+      Logger.log(`[claimDailyReward] Aucune évaluation aujourd'hui pour ${personneKey}.`);
+      return { success: false, message: 'Tu dois d\'abord remplir ta journée.' };
+    }
+
+    const maxPointsJour = getMaxPointsParJour_(personneKey).maxPoints;
+    const evalSheet = ss.getSheetByName('Évaluations');
+    const evalData = evalSheet.getDataRange().getValues().slice(1);
+    const todayKey = getParisDateKey(new Date());
+    const todayRow = evalData.find(row => {
+      const rowKey = getParisDateKeyFromValue(row[1], 'Évaluations.Date');
+      return rowKey === todayKey && String(row[3] || '').trim() === personneKey;
+    });
+
+    if (!todayRow) {
+      Logger.log(`[claimDailyReward] Évaluation introuvable pour ${personneKey} (date=${todayKey}).`);
+      return { success: false, message: 'Évaluation du jour introuvable.' };
+    }
+
+    const totalJour = Number(todayRow[27]);
+    const percent = calculerPourcentage_(totalJour, maxPointsJour);
+
+    if (percent < DAILY_REWARD_CONFIG.minPercent || percent > DAILY_REWARD_CONFIG.maxPercent) {
+      Logger.log(`[claimDailyReward] Pourcentage ${percent}% hors seuil pour ${personneKey}.`);
+      return {
+        success: false,
+        message: `La récompense mini-mois est disponible entre ${DAILY_REWARD_CONFIG.minPercent}% et ${DAILY_REWARD_CONFIG.maxPercent}%.`
+      };
+    }
+
+    if (hasClaimedDailyRewardToday_(personneKey)) {
+      Logger.log(`[claimDailyReward] Récompense du jour déjà réclamée pour ${personneKey}.`);
+      return { success: false, message: 'Tu as déjà réclamé ta récompense du jour.' };
+    }
+
+    const rewardsSheet = ss.getSheetByName('Récompenses');
+    const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
+    const reward = rewardsData.find(r => r[0] === rewardId);
+
+    if (!reward || reward[5] !== 'Oui') {
+      Logger.log(`[claimDailyReward] Récompense ${rewardId} inactive ou introuvable.`);
+      return { success: false, message: 'Récompense introuvable 😕' };
+    }
+
+    const categorieNormalisee = normaliserTexte_(reward[4]);
+    if (!DAILY_REWARD_CONFIG.categories.includes(categorieNormalisee)) {
+      Logger.log(`[claimDailyReward] Récompense ${rewardId} non autorisée (cat=${reward[4]}).`);
+      return { success: false, message: 'Cette récompense ne fait pas partie du mini-mois.' };
+    }
+
+    const sheet = getDailyRewardsSheet_();
+    const newId = 'RJ' + String(sheet.getLastRow()).padStart(4, '0');
+    sheet.appendRow([
+      newId,
+      new Date(),
+      personneKey,
+      reward[1],
+      reward[4]
+    ]);
+
+    Logger.log(`[claimDailyReward] Récompense journalière ${rewardId} enregistrée pour ${personneKey}.`);
+    return {
+      success: true,
+      message: `🎉 Super ! "${reward[1]}" demandé pour aujourd'hui !`
+    };
+  } catch (error) {
+    Logger.log(`[claimDailyReward] Erreur pour ${personne} : ${error}`);
+    return { success: false, message: 'Erreur lors de la demande. Réessaie plus tard.' };
+  }
 }
 
 // ==================================================
