@@ -519,7 +519,7 @@ function onUserLoaded(data) {
   
   document.getElementById('header-avatar').textContent = data.avatar;
   document.getElementById('header-name').textContent = data.nom;
-  document.getElementById('header-points').textContent = data.weekPoints;
+  document.getElementById('header-points').textContent = data.totalPoints;
   
   document.getElementById('screen-home').classList.remove('active');
   document.getElementById('screen-main').classList.add('active');
@@ -968,7 +968,7 @@ function displayFamily(family) {
         <div class="family-name">${f.nom}</div>
         <div class="family-streak">🔥 ${f.streak} jours • 🏆 ${f.badgeCount} trophées</div>
       </div>
-      <div class="family-pts">${f.weekPoints}</div>
+      <div class="family-pts">${f.totalPoints}</div>
       <div class="family-status">${f.evaluatedToday ? '✅' : '⏳'}</div>
     </div>
   `).join('');
@@ -980,8 +980,7 @@ function displayFamily(family) {
 function loadRewardsPage() {
   if (!userData) return;
   
-  document.getElementById('rewards-total').textContent = userData.weekPoints;
-  renderDailyRewardSection();
+  document.getElementById('rewards-total').textContent = userData.totalPoints;
   
   const container = document.getElementById('rewards-list');
   container.innerHTML = userData.rewards.map(r => `
@@ -991,54 +990,8 @@ function loadRewardsPage() {
       <div class="reward-cost">${r.cout} ⭐</div>
       ${r.disponible 
         ? `<button class="btn-reward" onclick="claimReward('${r.id}', '${r.nom}')">Je veux ! 🎉</button>`
-        : `<div class="reward-locked">🔒 Encore ${r.cout - userData.weekPoints} étoiles</div>`
+        : `<div class="reward-locked">🔒 Encore ${r.cout - userData.totalPoints} étoiles</div>`
       }
-    </div>
-  `).join('');
-}
-
-function renderDailyRewardSection() {
-  const wrapper = document.getElementById('daily-reward-section');
-  const statusEl = document.getElementById('daily-reward-status');
-  const container = document.getElementById('daily-reward-list');
-
-  if (!wrapper || !statusEl || !container) {
-    console.warn('[renderDailyRewardSection] Conteneur mini-mois introuvable.');
-    return;
-  }
-
-  const daily = userData?.dailyReward;
-  if (!daily) {
-    wrapper.style.display = 'none';
-    return;
-  }
-
-  wrapper.style.display = 'block';
-  container.innerHTML = '';
-
-  if (!userData.evaluatedToday) {
-    statusEl.textContent = 'Complète d’abord ta journée pour débloquer le mini-mois.';
-    return;
-  }
-
-  if (daily.claimed) {
-    statusEl.textContent = 'Tu as déjà choisi ta récompense mini-mois aujourd’hui. 🧡';
-    return;
-  }
-
-  if (!daily.eligible) {
-    const percentLabel = Number.isFinite(daily.percent) ? `${daily.percent}%` : '—';
-    statusEl.textContent = `Mini-mois dispo entre 75% et 80%. Ton score : ${percentLabel}.`;
-    return;
-  }
-
-  statusEl.textContent = 'Choisis un dessin animé OU une gourmandise (pas les deux).';
-  container.innerHTML = daily.options.map(option => `
-    <div class="reward-card available daily-reward-card">
-      <div class="reward-emoji">${option.emoji}</div>
-      <div class="reward-name">${option.nom}</div>
-      <div class="reward-cost">${option.categorie}</div>
-      <button class="btn-reward" onclick="claimDailyReward('${option.id}', '${option.nom}')">Je veux ! 🎬</button>
     </div>
   `).join('');
 }
@@ -1054,25 +1007,6 @@ function claimReward(rewardId, rewardName) {
     })
     .withFailureHandler(handleError)
     .claimReward(currentUser, rewardId);
-}
-
-function claimDailyReward(rewardId, rewardName) {
-  if (!confirm(`Tu veux "${rewardName}" pour aujourd'hui ? 🎁`)) return;
-
-  showToast('Demande mini-mois en cours...', '');
-
-  google.script.run
-    .withSuccessHandler(result => {
-      showToast(result.message, result.success ? 'success' : 'error');
-      if (result.success) {
-        google.script.run
-          .withSuccessHandler(onUserLoaded)
-          .withFailureHandler(handleError)
-          .getPersonneData(currentUser);
-      }
-    })
-    .withFailureHandler(handleError)
-    .claimDailyReward(currentUser, rewardId);
 }
 
 // ==================================================

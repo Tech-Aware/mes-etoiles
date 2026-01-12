@@ -27,13 +27,6 @@ const TASK_CATEGORY_KEYS = {
   autres: 'autres'
 };
 
-const DAILY_REWARDS_SHEET_NAME = 'Récompenses_Journalières';
-const DAILY_REWARDS_HEADERS = ['ID', 'Date', 'Personne', 'Récompense', 'Catégorie'];
-const DAILY_REWARD_CONFIG = {
-  minPercent: 75,
-  maxPercent: 80,
-  categories: ['ecran', 'gourmandise']
-};
 
 // ==================================================
 // CONFIGURATION - COLONNE JOURS (TÂCHES)
@@ -206,15 +199,6 @@ function normaliserTexte_(valeur) {
     .trim();
 }
 
-function calculerPourcentage_(total, maxPoints) {
-  if (!Number.isFinite(maxPoints) || maxPoints <= 0) {
-    Logger.log(`[calculerPourcentage] maxPoints invalide (${maxPoints}), retour à 0%.`);
-    return 0;
-  }
-  const brut = Math.round((Number(total) / maxPoints) * 100);
-  return Math.max(0, brut);
-}
-
 function getMaxPointsParJour_(personne) {
   try {
     const assigned = getTachesAssigneesPourPersonne_(personne);
@@ -228,28 +212,65 @@ function getMaxPointsParJour_(personne) {
   }
 }
 
-function getDailyRewardsSheet_() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  let sheet = ss.getSheetByName(DAILY_REWARDS_SHEET_NAME);
-  if (!sheet) {
-    Logger.log(`[getDailyRewardsSheet] Feuille "${DAILY_REWARDS_SHEET_NAME}" absente, création.`);
-    sheet = ss.insertSheet(DAILY_REWARDS_SHEET_NAME);
-    sheet.getRange(1, 1, 1, DAILY_REWARDS_HEADERS.length).setValues([DAILY_REWARDS_HEADERS]);
-  }
-  return sheet;
+function getPointsDisponibles_(personneKey, evalData, claimsData) {
+  const totalGagnes = evalData
+    .filter(row => String(row[3] || '').trim() === personneKey)
+    .reduce((acc, row) => acc + Number(row[27] || 0), 0);
+
+  const totalDepenses = claimsData
+    .filter(row => String(row[2] || '').trim() === personneKey)
+    .filter(row => {
+      const statut = normaliserTexte_(row[5]);
+      return statut !== 'annule' && statut !== 'annulé' && statut !== 'refuse' && statut !== 'refusee' && statut !== 'refusée';
+    })
+    .reduce((acc, row) => acc + Number(row[4] || 0), 0);
+
+  const totalPoints = Math.max(0, totalGagnes - totalDepenses);
+  Logger.log(`[getPointsDisponibles] ${personneKey} : gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
+  return { totalPoints, totalGagnes, totalDepenses };
 }
 
-function hasClaimedDailyRewardToday_(personne) {
-  const sheet = getDailyRewardsSheet_();
-  const data = sheet.getDataRange().getValues().slice(1);
-  const todayKey = getParisDateKey(new Date());
-  const personneKey = String(personne || '').trim();
-  const claimed = data.some(row => {
-    const rowKey = getParisDateKeyFromValue(row[1], `${DAILY_REWARDS_SHEET_NAME}.Date`);
-    return rowKey === todayKey && String(row[2] || '').trim() === personneKey;
-  });
-  Logger.log(`[hasClaimedDailyRewardToday] ${personneKey} (date=${todayKey}) => ${claimed}.`);
-  return claimed;
+function mettreAJourCoutsRecompenses() {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName('Récompenses');
+    if (!sheet) {
+      Logger.log('[mettreAJourCoutsRecompenses] Feuille "Récompenses" introuvable.');
+      throw new Error('Feuille "Récompenses" introuvable.');
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+      Logger.log('[mettreAJourCoutsRecompenses] Aucune récompense à normaliser.');
+      return { success: true, message: 'Aucune récompense à mettre à jour.' };
+    }
+
+    const headers = data[0].map(value => String(value || '').trim());
+    const costIndex = headers.indexOf('Coût');
+    if (costIndex === -1) {
+      Logger.log('[mettreAJourCoutsRecompenses] Colonne "Coût" introuvable.');
+      throw new Error('Colonne "Coût" introuvable.');
+    }
+
+    const updated = data.slice(1).map((row, idx) => {
+      const rawCost = row[costIndex];
+      const cost = Number(rawCost);
+      if (Number.isNaN(cost) || cost < 0) {
+        Logger.log(`[mettreAJourCoutsRecompenses] Coût invalide ligne ${idx + 2} (${rawCost}), remis à 0.`);
+        row[costIndex] = 0;
+      } else {
+        row[costIndex] = Math.round(cost);
+      }
+      return row;
+    });
+
+    sheet.getRange(2, 1, updated.length, data[0].length).setValues(updated);
+    Logger.log('[mettreAJourCoutsRecompenses] Coûts normalisés et mis à jour.');
+    return { success: true, message: 'Coûts des récompenses mis à jour.' };
+  } catch (error) {
+    Logger.log(`[mettreAJourCoutsRecompenses] Erreur : ${error}`);
+    throw new Error('Impossible de mettre à jour les coûts des récompenses.');
+  }
 }
 
 function normaliserCategorieTache_(categorie) {
@@ -927,6 +948,15 @@ function getPersonneData(personne) {
     // Évaluations
     const evalSheet = ss.getSheetByName('Évaluations');
     const evalData = evalSheet.getDataRange().getValues().slice(1);
+
+    // Récompenses demandées (dépenses)
+    const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
+    let claimsData = [];
+    if (!claimsSheet) {
+      Logger.log('[getPersonneData] Feuille "Récompenses_Demandées" introuvable, dépenses ignorées.');
+    } else {
+      claimsData = claimsSheet.getDataRange().getValues().slice(1);
+    }
     
     // Semaine en cours (Paris)
     const todayParis = getParisMidnight(new Date());
@@ -1029,6 +1059,8 @@ function getPersonneData(personne) {
       return def ? { id: def[0], nom: def[1], emoji: def[2] } : null;
     }).filter(b => b);
     
+    const pointsDisponibles = getPointsDisponibles_(personneKey, evalData, claimsData);
+
     // Récompenses
     const rewardsSheet = ss.getSheetByName('Récompenses');
     const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
@@ -1038,31 +1070,8 @@ function getPersonneData(personne) {
         id: r[0],
         nom: r[1],
         emoji: r[2],
-        cout: r[3],
-        disponible: weekPoints >= r[3]
-      }));
-
-    const todayKey = getParisDateKey(new Date());
-    const todayEval = personneEvals.find(row => {
-      const rowKey = getParisDateKeyFromValue(row[1], 'Évaluations.Date');
-      return rowKey === todayKey;
-    });
-    const todayTotal = todayEval ? Number(todayEval[27]) : null;
-    const todayPercent = Number.isFinite(todayTotal) ? calculerPourcentage_(todayTotal, maxPointsJour) : null;
-
-    const dailyRewardClaimed = hasClaimedDailyRewardToday_(personneKey);
-    const dailyRewardEligible = todayPercent !== null
-      && todayPercent >= DAILY_REWARD_CONFIG.minPercent
-      && todayPercent <= DAILY_REWARD_CONFIG.maxPercent;
-
-    const dailyRewardOptions = rewardsData
-      .filter(r => r[5] === 'Oui')
-      .filter(r => DAILY_REWARD_CONFIG.categories.includes(normaliserTexte_(r[4])))
-      .map(r => ({
-        id: r[0],
-        nom: r[1],
-        emoji: r[2],
-        categorie: r[4]
+        cout: Number(r[3]) || 0,
+        disponible: pointsDisponibles.totalPoints >= (Number(r[3]) || 0)
       }));
     
     return {
@@ -1071,6 +1080,9 @@ function getPersonneData(personne) {
       couleur: personneInfo ? personneInfo[2] : '#6C5CE7',
       age: personneInfo ? personneInfo[3] : 0,
       weekPoints: weekPoints,
+      totalPoints: pointsDisponibles.totalPoints,
+      totalEarned: pointsDisponibles.totalGagnes,
+      totalSpent: pointsDisponibles.totalDepenses,
       weekDays: weekDays,
       dailyScores: dailyScores,
       streak: streak,
@@ -1078,12 +1090,6 @@ function getPersonneData(personne) {
       badges: badges,
       rewards: rewards,
       maxPointsJour: maxPointsJour,
-      dailyReward: {
-        eligible: dailyRewardEligible,
-        claimed: dailyRewardClaimed,
-        percent: todayPercent,
-        options: dailyRewardOptions
-      },
       evaluatedToday: hasEvaluatedToday(personne),
       weekStart: Utilities.formatDate(weekStart, PARIS_TIMEZONE, 'dd/MM'),
       weekEnd: Utilities.formatDate(weekEnd, PARIS_TIMEZONE, 'dd/MM')
@@ -1105,12 +1111,12 @@ function getFamilyData() {
       nom: p.nom,
       avatar: p.avatar,
       couleur: p.couleur,
-      weekPoints: data.weekPoints,
+      totalPoints: data.totalPoints,
       streak: data.streak,
       badgeCount: data.badges.length,
       evaluatedToday: data.evaluatedToday
     };
-  }).sort((a, b) => b.weekPoints - a.weekPoints);
+  }).sort((a, b) => b.totalPoints - a.totalPoints);
 }
 
 // ==================================================
@@ -1130,9 +1136,11 @@ function claimReward(personne, rewardId) {
 
   const rewardCost = Number(reward[3]) || 0;
   
-  if (data.weekPoints < rewardCost) {
-    return { success: false, message: `Il te manque ${rewardCost - data.weekPoints} étoiles 😢` };
+  if (data.totalPoints < rewardCost) {
+    return { success: false, message: `Il te manque ${rewardCost - data.totalPoints} étoiles 😢` };
   }
+
+  Logger.log(`[claimReward] Demande de récompense pour ${personne} (${rewardId}) : coût=${rewardCost}, points dispos=${data.totalPoints}.`);
   
   const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
   const newId = 'C' + String(claimsSheet.getLastRow()).padStart(4, '0');
@@ -1152,85 +1160,6 @@ function claimReward(personne, rewardId) {
     success: true, 
     message: `🎉 Super ! "${reward[1]}" demandé !`
   };
-}
-
-// ==================================================
-// RÉCLAMER RÉCOMPENSE JOURNALIÈRE
-// ==================================================
-function claimDailyReward(personne, rewardId) {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const personneKey = String(personne || '').trim();
-
-    if (!hasEvaluatedToday(personneKey)) {
-      Logger.log(`[claimDailyReward] Aucune évaluation aujourd'hui pour ${personneKey}.`);
-      return { success: false, message: 'Tu dois d\'abord remplir ta journée.' };
-    }
-
-    const maxPointsJour = getMaxPointsParJour_(personneKey).maxPoints;
-    const evalSheet = ss.getSheetByName('Évaluations');
-    const evalData = evalSheet.getDataRange().getValues().slice(1);
-    const todayKey = getParisDateKey(new Date());
-    const todayRow = evalData.find(row => {
-      const rowKey = getParisDateKeyFromValue(row[1], 'Évaluations.Date');
-      return rowKey === todayKey && String(row[3] || '').trim() === personneKey;
-    });
-
-    if (!todayRow) {
-      Logger.log(`[claimDailyReward] Évaluation introuvable pour ${personneKey} (date=${todayKey}).`);
-      return { success: false, message: 'Évaluation du jour introuvable.' };
-    }
-
-    const totalJour = Number(todayRow[27]);
-    const percent = calculerPourcentage_(totalJour, maxPointsJour);
-
-    if (percent < DAILY_REWARD_CONFIG.minPercent || percent > DAILY_REWARD_CONFIG.maxPercent) {
-      Logger.log(`[claimDailyReward] Pourcentage ${percent}% hors seuil pour ${personneKey}.`);
-      return {
-        success: false,
-        message: `La récompense mini-mois est disponible entre ${DAILY_REWARD_CONFIG.minPercent}% et ${DAILY_REWARD_CONFIG.maxPercent}%.`
-      };
-    }
-
-    if (hasClaimedDailyRewardToday_(personneKey)) {
-      Logger.log(`[claimDailyReward] Récompense du jour déjà réclamée pour ${personneKey}.`);
-      return { success: false, message: 'Tu as déjà réclamé ta récompense du jour.' };
-    }
-
-    const rewardsSheet = ss.getSheetByName('Récompenses');
-    const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
-    const reward = rewardsData.find(r => r[0] === rewardId);
-
-    if (!reward || reward[5] !== 'Oui') {
-      Logger.log(`[claimDailyReward] Récompense ${rewardId} inactive ou introuvable.`);
-      return { success: false, message: 'Récompense introuvable 😕' };
-    }
-
-    const categorieNormalisee = normaliserTexte_(reward[4]);
-    if (!DAILY_REWARD_CONFIG.categories.includes(categorieNormalisee)) {
-      Logger.log(`[claimDailyReward] Récompense ${rewardId} non autorisée (cat=${reward[4]}).`);
-      return { success: false, message: 'Cette récompense ne fait pas partie du mini-mois.' };
-    }
-
-    const sheet = getDailyRewardsSheet_();
-    const newId = 'RJ' + String(sheet.getLastRow()).padStart(4, '0');
-    sheet.appendRow([
-      newId,
-      new Date(),
-      personneKey,
-      reward[1],
-      reward[4]
-    ]);
-
-    Logger.log(`[claimDailyReward] Récompense journalière ${rewardId} enregistrée pour ${personneKey}.`);
-    return {
-      success: true,
-      message: `🎉 Super ! "${reward[1]}" demandé pour aujourd'hui !`
-    };
-  } catch (error) {
-    Logger.log(`[claimDailyReward] Erreur pour ${personne} : ${error}`);
-    return { success: false, message: 'Erreur lors de la demande. Réessaie plus tard.' };
-  }
 }
 
 // ==================================================
