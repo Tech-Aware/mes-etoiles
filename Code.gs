@@ -228,21 +228,6 @@ function getMaxPointsParJour_(personne) {
   }
 }
 
-function calculerCoutRecompense_(coutBase, maxWeekPoints) {
-  const base = Number(coutBase);
-  if (Number.isNaN(base) || base <= 0) {
-    Logger.log(`[calculerCoutRecompense] Coût base invalide (${coutBase}), retour à 0.`);
-    return 0;
-  }
-  if (!Number.isFinite(maxWeekPoints) || maxWeekPoints <= 0) {
-    Logger.log(`[calculerCoutRecompense] maxWeekPoints invalide (${maxWeekPoints}), retour au coût base.`);
-    return Math.round(base);
-  }
-  const cout = Math.max(1, Math.round((base / 100) * maxWeekPoints));
-  Logger.log(`[calculerCoutRecompense] Coût base ${base} => coût ajusté ${cout} (maxWeekPoints=${maxWeekPoints}).`);
-  return cout;
-}
-
 function getDailyRewardsSheet_() {
   const ss = SpreadsheetApp.openById(SS_ID);
   let sheet = ss.getSheetByName(DAILY_REWARDS_SHEET_NAME);
@@ -952,7 +937,6 @@ function getPersonneData(personne) {
 
     const maxPointsData = getMaxPointsParJour_(personneKey);
     const maxPointsJour = maxPointsData.maxPoints;
-    const maxPointsWeek = maxPointsJour * 7;
     
     let weekPoints = 0;
     let weekDays = 0;
@@ -1050,16 +1034,13 @@ function getPersonneData(personne) {
     const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
     const rewards = rewardsData
       .filter(r => r[5] === 'Oui')
-      .map(r => {
-        const cout = calculerCoutRecompense_(r[3], maxPointsWeek);
-        return {
-          id: r[0],
-          nom: r[1],
-          emoji: r[2],
-          cout: cout,
-          disponible: weekPoints >= cout
-        };
-      });
+      .map(r => ({
+        id: r[0],
+        nom: r[1],
+        emoji: r[2],
+        cout: r[3],
+        disponible: weekPoints >= r[3]
+      }));
 
     const todayKey = getParisDateKey(new Date());
     const todayEval = personneEvals.find(row => {
@@ -1097,7 +1078,6 @@ function getPersonneData(personne) {
       badges: badges,
       rewards: rewards,
       maxPointsJour: maxPointsJour,
-      maxPointsWeek: maxPointsWeek,
       dailyReward: {
         eligible: dailyRewardEligible,
         claimed: dailyRewardClaimed,
@@ -1148,8 +1128,7 @@ function claimReward(personne, rewardId) {
     return { success: false, message: 'Récompense introuvable 😕' };
   }
 
-  const maxPointsWeek = Number(data.maxPointsWeek) || 0;
-  const rewardCost = calculerCoutRecompense_(reward[3], maxPointsWeek);
+  const rewardCost = Number(reward[3]) || 0;
   
   if (data.weekPoints < rewardCost) {
     return { success: false, message: `Il te manque ${rewardCost - data.weekPoints} étoiles 😢` };
