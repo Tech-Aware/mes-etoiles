@@ -5,6 +5,20 @@
 
 const SS_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const PARIS_TIMEZONE = 'Europe/Paris';
+const TASK_IDS = [
+  'rangerChambre',
+  'faireLit',
+  'rangerJouets',
+  'aiderTable',
+  'ecouter',
+  'gentilSoeur',
+  'politesse',
+  'pasColere',
+  'dentsMatin',
+  'dentsSoir',
+  'habiller',
+  'cartable'
+];
 
 // ==================================================
 // UTILITAIRES DATES (PARIS)
@@ -175,6 +189,138 @@ function getSources() {
 }
 
 // ==================================================
+// RÉCUPÉRER LES TÂCHES ASSIGNÉES
+// ==================================================
+function getTachesPourPersonne(personne) {
+  try {
+    const result = getTachesAssigneesPourPersonne_(personne);
+    Logger.log(`[getTachesPourPersonne] Tâches filtrées pour ${personne} : ${JSON.stringify(result.taskIds)}`);
+    return {
+      personne: String(personne || '').trim(),
+      taskIds: result.taskIds,
+      allowEmpty: result.allowEmpty,
+      reason: result.reason,
+      allTaskIds: TASK_IDS
+    };
+  } catch (error) {
+    Logger.log(`[getTachesPourPersonne] Erreur pour ${personne} : ${error}`);
+    throw new Error('Impossible de charger les tâches attribuées.');
+  }
+}
+
+function getTachesAssigneesPourPersonne_(personne) {
+  const personneKey = String(personne || '').trim();
+  if (!personneKey) {
+    Logger.log('[getTachesAssigneesPourPersonne] Personne non renseignée, retour de la liste par défaut.');
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'personne_absente' };
+  }
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName('Tâches');
+  if (!sheet) {
+    Logger.log('[getTachesAssigneesPourPersonne] Feuille Tâches introuvable, retour de la liste par défaut.');
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'feuille_absente' };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) {
+    Logger.log('[getTachesAssigneesPourPersonne] Feuille Tâches vide, retour de la liste par défaut.');
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'feuille_vide' };
+  }
+
+  const headers = data[0].map(value => String(value || '').trim());
+  const idIndex = headers.indexOf('ID');
+  const personneIndex = headers.indexOf('Personne');
+  const personnesIndex = headers.indexOf('Personnes');
+  const ordreIndex = headers.indexOf('Ordre');
+
+  if (idIndex === -1) {
+    Logger.log('[getTachesAssigneesPourPersonne] Colonne ID manquante, retour de la liste par défaut.');
+    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'id_manquant' };
+  }
+
+  const assignedTasks = [];
+  const addTask = taskId => {
+    if (!TASK_IDS.includes(taskId)) {
+      Logger.log(`[getTachesAssigneesPourPersonne] ID de tâche inconnu ignoré : ${taskId}`);
+      return;
+    }
+    if (!assignedTasks.includes(taskId)) {
+      assignedTasks.push(taskId);
+    }
+  };
+
+  const resolveTaskKey = (row) => {
+    const rawId = String(row[idIndex] || '').trim();
+    if (TASK_IDS.includes(rawId)) {
+      return { taskKey: rawId, source: 'id_direct' };
+    }
+
+    if (rawId) {
+      const match = rawId.match(/\d+/);
+      if (match) {
+        const index = Number(match[0]) - 1;
+        if (index >= 0 && index < TASK_IDS.length) {
+          return { taskKey: TASK_IDS[index], source: 'id_numerique' };
+        }
+      }
+    }
+
+    if (ordreIndex !== -1) {
+      const ordreValue = Number(row[ordreIndex]);
+      const ordreIndexBased = ordreValue - 1;
+      if (!Number.isNaN(ordreValue) && ordreIndexBased >= 0 && ordreIndexBased < TASK_IDS.length) {
+        return { taskKey: TASK_IDS[ordreIndexBased], source: 'ordre' };
+      }
+    }
+
+    return { taskKey: '', source: 'inconnu' };
+  };
+
+  data.slice(1).forEach((row, rowIndex) => {
+    const resolved = resolveTaskKey(row);
+    if (!resolved.taskKey) {
+      const rawId = String(row[idIndex] || '').trim();
+      Logger.log(`[getTachesAssigneesPourPersonne] ID de tâche inconnu ignoré : ${rawId}`);
+      return;
+    }
+
+    const taskId = resolved.taskKey;
+    const targetIndex = personneIndex !== -1 ? personneIndex : personnesIndex;
+    if (targetIndex === -1) {
+      addTask(taskId);
+      return;
+    }
+
+    const rawAssignees = String(row[targetIndex] || '').trim();
+    if (!rawAssignees) {
+      addTask(taskId);
+      return;
+    }
+
+    const assignees = rawAssignees
+      .split(/[,;\n]+/)
+      .map(value => value.trim())
+      .filter(Boolean);
+
+    if (assignees.length === 0) {
+      addTask(taskId);
+      return;
+    }
+
+    if (assignees.includes(personneKey)) {
+      addTask(taskId);
+      Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} assignée via ${resolved.source} (ligne ${rowIndex + 2}).`);
+    } else {
+      Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} ignorée pour ${personneKey} (ligne ${rowIndex + 2}).`);
+    }
+  });
+
+  const reason = assignedTasks.length > 0 ? 'filtrage_ok' : 'aucune_tache';
+  Logger.log(`[getTachesAssigneesPourPersonne] Résultat ${reason} pour ${personneKey} : ${JSON.stringify(assignedTasks)}`);
+  return { taskIds: assignedTasks, allowEmpty: true, reason };
+}
+
+// ==================================================
 // VÉRIFIER SI ÉVALUÉ AUJOURD'HUI
 // ==================================================
 function hasEvaluatedToday(personne) {
@@ -231,10 +377,40 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const newId = 'E' + String(lastRow).padStart(4, '0');
     const now = new Date();
     
+    const assignedResult = getTachesAssigneesPourPersonne_(personne);
+    const assignedTasks = assignedResult.taskIds;
+    const assignedSet = new Set(assignedTasks);
+    const safeTaskValue = (taskKey) => {
+      const value = Number(taches && taches[taskKey]);
+      if (!assignedSet.has(taskKey)) {
+        return 0;
+      }
+      if (Number.isNaN(value)) {
+        Logger.log(`[submitEvaluation] Valeur de tâche invalide pour ${taskKey} (${personne}). Valeur remise à 0.`);
+        return 0;
+      }
+      return value;
+    };
+
+    const tachesNormalisees = {
+      rangerChambre: safeTaskValue('rangerChambre'),
+      faireLit: safeTaskValue('faireLit'),
+      rangerJouets: safeTaskValue('rangerJouets'),
+      aiderTable: safeTaskValue('aiderTable'),
+      ecouter: safeTaskValue('ecouter'),
+      gentilSoeur: safeTaskValue('gentilSoeur'),
+      politesse: safeTaskValue('politesse'),
+      pasColere: safeTaskValue('pasColere'),
+      dentsMatin: safeTaskValue('dentsMatin'),
+      dentsSoir: safeTaskValue('dentsSoir'),
+      habiller: safeTaskValue('habiller'),
+      cartable: safeTaskValue('cartable')
+    };
+
     // Calculs totaux
-    const totalCorvees = taches.rangerChambre + taches.faireLit + taches.rangerJouets + taches.aiderTable;
-    const totalComportement = taches.ecouter + taches.gentilSoeur + taches.politesse + taches.pasColere;
-    const totalRituels = taches.dentsMatin + taches.dentsSoir + taches.habiller + taches.cartable;
+    const totalCorvees = tachesNormalisees.rangerChambre + tachesNormalisees.faireLit + tachesNormalisees.rangerJouets + tachesNormalisees.aiderTable;
+    const totalComportement = tachesNormalisees.ecouter + tachesNormalisees.gentilSoeur + tachesNormalisees.politesse + tachesNormalisees.pasColere;
+    const totalRituels = tachesNormalisees.dentsMatin + tachesNormalisees.dentsSoir + tachesNormalisees.habiller + tachesNormalisees.cartable;
     const totalEmotions = emotions.gestion;
     const totalJour = totalCorvees + totalComportement + totalRituels + totalEmotions;
 
@@ -249,18 +425,18 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       Utilities.formatDate(now, PARIS_TIMEZONE, 'HH:mm'),
       personne,
       // Tâches
-      taches.rangerChambre,
-      taches.faireLit,
-      taches.rangerJouets,
-      taches.aiderTable,
-      taches.ecouter,
-      taches.gentilSoeur,
-      taches.politesse,
-      taches.pasColere,
-      taches.dentsMatin,
-      taches.dentsSoir,
-      taches.habiller,
-      taches.cartable,
+      tachesNormalisees.rangerChambre,
+      tachesNormalisees.faireLit,
+      tachesNormalisees.rangerJouets,
+      tachesNormalisees.aiderTable,
+      tachesNormalisees.ecouter,
+      tachesNormalisees.gentilSoeur,
+      tachesNormalisees.politesse,
+      tachesNormalisees.pasColere,
+      tachesNormalisees.dentsMatin,
+      tachesNormalisees.dentsSoir,
+      tachesNormalisees.habiller,
+      tachesNormalisees.cartable,
       // Émotions
       emotions.emotion1,
       emotions.emotion2 || '',
@@ -287,7 +463,8 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const newBadges = checkBadges(personne);
     
     // Message selon score
-    const maxPoints = 13;
+    const baseTaskCount = assignedTasks.length;
+    const maxPoints = baseTaskCount + 1;
     const percent = Math.max(0, Math.round((totalJour / maxPoints) * 100));
     
     let message, stars;
