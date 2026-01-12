@@ -263,7 +263,7 @@ function getTachesAssigneesPourPersonne_(personne) {
     }
 
     const assignees = rawAssignees
-      .split(/[,;]+/)
+      .split(/[,;\n]+/)
       .map(value => value.trim())
       .filter(Boolean);
 
