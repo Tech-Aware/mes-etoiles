@@ -23,6 +23,34 @@ const TASK_IDS = [
 // ==================================================
 // CONFIGURATION - COLONNE JOURS (TÂCHES)
 // ==================================================
+const JOURS_SHEET_NAME = 'Jours';
+const JOURS_LISTE = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+
+function creerFeuilleJoursSemaine() {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    let sheet = ss.getSheetByName(JOURS_SHEET_NAME);
+    if (!sheet) {
+      Logger.log(`[creerFeuilleJoursSemaine] Feuille "${JOURS_SHEET_NAME}" absente, création en cours.`);
+      sheet = ss.insertSheet(JOURS_SHEET_NAME);
+    }
+
+    const existingValues = sheet.getRange(1, 1, sheet.getMaxRows(), 1).getValues();
+    const flattened = existingValues.map(row => String(row[0] || '').trim()).filter(Boolean);
+    if (flattened.length === 0) {
+      Logger.log('[creerFeuilleJoursSemaine] Initialisation de la liste des jours.');
+      sheet.getRange(1, 1, JOURS_LISTE.length, 1).setValues(JOURS_LISTE.map(day => [day]));
+    } else {
+      Logger.log(`[creerFeuilleJoursSemaine] Liste déjà présente (${flattened.length} valeurs), aucune modification.`);
+    }
+
+    return { success: true, message: 'Feuille Jours prête.' };
+  } catch (error) {
+    Logger.log(`[creerFeuilleJoursSemaine] Erreur lors de la création : ${error}`);
+    throw new Error('Impossible de créer ou initialiser la feuille Jours.');
+  }
+}
+
 function creerColonneJoursTaches() {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
@@ -39,20 +67,52 @@ function creerColonneJoursTaches() {
 
     if (currentValue === 'Jours') {
       Logger.log('[creerColonneJoursTaches] Colonne Jours déjà présente en I1.');
-      return { success: true, message: 'Colonne Jours déjà présente en I1.' };
-    }
-
-    if (currentValue && currentValue !== 'Jours') {
+    } else if (currentValue && currentValue !== 'Jours') {
       Logger.log(`[creerColonneJoursTaches] Valeur existante en I1 ("${currentValue}"), écrasement avec "Jours".`);
+      cell.setValue('Jours');
     } else {
       Logger.log('[creerColonneJoursTaches] Création de la colonne Jours en I1.');
+      cell.setValue('Jours');
     }
 
-    cell.setValue('Jours');
-    return { success: true, message: 'Colonne Jours créée en I1.' };
+    return { success: true, message: 'Colonne Jours prête en I1.' };
   } catch (error) {
     Logger.log(`[creerColonneJoursTaches] Erreur lors de la création : ${error}`);
     throw new Error('Impossible de créer la colonne Jours dans la feuille Tâches.');
+  }
+}
+
+function configurerValidationJoursTaches() {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheetTaches = ss.getSheetByName('Tâches');
+    if (!sheetTaches) {
+      Logger.log('[configurerValidationJoursTaches] Feuille "Tâches" introuvable.');
+      throw new Error('Feuille "Tâches" introuvable.');
+    }
+
+    const sheetJours = ss.getSheetByName(JOURS_SHEET_NAME);
+    if (!sheetJours) {
+      Logger.log('[configurerValidationJoursTaches] Feuille "Jours" introuvable.');
+      throw new Error('Feuille "Jours" introuvable.');
+    }
+
+    const lastRow = Math.max(sheetJours.getLastRow(), 1);
+    const rangeJours = sheetJours.getRange(1, 1, lastRow, 1);
+    const validation = SpreadsheetApp.newDataValidation()
+      .requireValueInRange(rangeJours, true)
+      .setAllowInvalid(true)
+      .build();
+
+    const maxRows = sheetTaches.getMaxRows();
+    const columnIndex = 9; // Colonne I
+    sheetTaches.getRange(2, columnIndex, maxRows - 1, 1).setDataValidation(validation);
+
+    Logger.log('[configurerValidationJoursTaches] Validation appliquée sur Tâches!I2:I.');
+    return { success: true, message: 'Validation Jours appliquée sur la feuille Tâches.' };
+  } catch (error) {
+    Logger.log(`[configurerValidationJoursTaches] Erreur lors de la configuration : ${error}`);
+    throw new Error('Impossible de configurer la validation Jours dans la feuille Tâches.');
   }
 }
 
@@ -129,7 +189,7 @@ function normaliserJoursTache_(rawValue) {
     return null;
   }
 
-  if (['tous', 'toute', 'toutes', 'toute la semaine', 'toute-semaine', 'toute_semaine', '7/7'].includes(value)) {
+  if (['tous', 'toute', 'toutes', 'toute la semaine', 'toute-semaine', 'toute_semaine', 'touslesjours', 'tous-les-jours', 'tous les jours', '7/7'].includes(value)) {
     return new Set([1, 2, 3, 4, 5, 6, 7]);
   }
 
@@ -157,7 +217,14 @@ function normaliserJoursTache_(rawValue) {
     sam: 6,
     samedi: 6,
     dim: 7,
-    dimanche: 7
+    dimanche: 7,
+    '1': 1,
+    '2': 2,
+    '3': 3,
+    '4': 4,
+    '5': 5,
+    '6': 6,
+    '7': 7
   };
 
   const daySet = new Set();
