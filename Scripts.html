@@ -5,6 +5,8 @@
 
 let currentUser = null;
 let userData = null;
+window.currentUser = currentUser;
+window.userData = userData;
 
 // Tâches
 const allTasks = [
@@ -41,6 +43,38 @@ const audioConfig = {
   clickDuration: 0.08,
   sparkleDuration: 0.16
 };
+
+function buildAvatarHtml({ photoUrl, avatar, className, alt }) {
+  const fallback = avatar || '👤';
+  if (!photoUrl) {
+    console.warn(`Photo manquante pour ${alt || 'utilisateur'}. Affichage emoji par défaut.`);
+    return `<span class="${className} avatar-fallback" aria-label="${alt || 'avatar'}">${fallback}</span>`;
+  }
+
+  const safeAlt = alt ? alt.replace(/"/g, "'") : 'avatar';
+  return `<img class="${className} avatar-img" src="${photoUrl}" alt="${safeAlt}" data-avatar-fallback="${fallback}" data-avatar-url="${photoUrl}" onload="handleAvatarLoad(this)" onerror="handleAvatarError(this)">`;
+}
+
+function handleAvatarLoad(imgElement) {
+  if (!imgElement) return;
+  const alt = imgElement.alt || 'avatar';
+  const url = imgElement.dataset.avatarUrl || imgElement.src;
+  console.info(`[handleAvatarLoad] Photo chargée pour ${alt}.`, { url });
+}
+
+function handleAvatarError(imgElement) {
+  if (!imgElement) return;
+  const fallback = imgElement.dataset.avatarFallback || '👤';
+  const alt = imgElement.alt || 'avatar';
+  const url = imgElement.dataset.avatarUrl || imgElement.src;
+  console.error(`Chargement photo échoué pour ${alt}. Passage à l'emoji.`, { url });
+
+  const span = document.createElement('span');
+  span.className = imgElement.className.replace('avatar-img', 'avatar-fallback');
+  span.textContent = fallback;
+  span.setAttribute('aria-label', alt);
+  imgElement.replaceWith(span);
+}
 
 // ==================================================
 // INITIALISATION
@@ -328,10 +362,32 @@ function loadPersonnes() {
 }
 
 function displayPersonnes(personnes) {
+  if (!Array.isArray(personnes)) {
+    console.error('[displayPersonnes] Données inattendues : liste de personnes absente ou invalide.', personnes);
+    showToast('Impossible de charger les personnes.', 'error');
+    return;
+  }
+
+  console.info(`[displayPersonnes] ${personnes.length} personne(s) reçue(s).`);
+  personnes.forEach(p => {
+    if (!p || !p.nom) {
+      console.warn('[displayPersonnes] Entrée personne invalide détectée.', p);
+      return;
+    }
+    if (!p.photoUrl) {
+      console.warn(`[displayPersonnes] Photo absente pour ${p.nom}. Fallback emoji appliqué.`);
+    }
+  });
+
   const container = document.getElementById('personnes-list');
   container.innerHTML = personnes.map(p => `
     <div class="personne-card" style="border-color: ${p.couleur}" onclick="selectPersonne('${p.nom}')">
-      <span class="personne-avatar">${p.avatar}</span>
+      ${buildAvatarHtml({
+        photoUrl: p.photoUrl,
+        avatar: p.avatar,
+        className: 'personne-avatar',
+        alt: `Photo de ${p.nom}`
+      })}
       <span class="personne-nom">${p.nom}</span>
     </div>
   `).join('');
@@ -342,6 +398,7 @@ function displayPersonnes(personnes) {
 // ==================================================
 function selectPersonne(nom) {
   currentUser = nom;
+  window.currentUser = currentUser;
   showToast('Chargement...', '');
   
   google.script.run
@@ -351,9 +408,27 @@ function selectPersonne(nom) {
 }
 
 function onUserLoaded(data) {
+  if (!data || !data.nom) {
+    console.error('[onUserLoaded] Données utilisateur invalides reçues.', data);
+    showToast('Impossible de charger le profil.', 'error');
+    return;
+  }
+
   userData = data;
-  
-  document.getElementById('header-avatar').textContent = data.avatar;
+  window.userData = userData;
+
+  if (!data.photoUrl) {
+    console.warn(`[onUserLoaded] Photo absente pour ${data.nom}. Fallback emoji appliqué.`);
+  } else {
+    console.info(`[onUserLoaded] Photo chargée pour ${data.nom}.`);
+  }
+
+  document.getElementById('header-avatar').innerHTML = buildAvatarHtml({
+    photoUrl: data.photoUrl,
+    avatar: data.avatar,
+    className: 'header-avatar-img',
+    alt: `Photo de ${data.nom}`
+  });
   document.getElementById('header-name').textContent = data.nom;
   document.getElementById('header-points').textContent = data.weekPoints;
   
@@ -401,6 +476,8 @@ function goHome() {
   document.getElementById('screen-home').classList.add('active');
   currentUser = null;
   userData = null;
+  window.currentUser = currentUser;
+  window.userData = userData;
   resetForm();
   
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -763,7 +840,12 @@ function displayFamily(family) {
   container.innerHTML = family.map((f, i) => `
     <div class="family-card" style="border-color: ${f.couleur}">
       <div class="family-rank">${i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '⭐'}</div>
-      <div class="family-avatar">${f.avatar}</div>
+      ${buildAvatarHtml({
+        photoUrl: f.photoUrl,
+        avatar: f.avatar,
+        className: 'family-avatar',
+        alt: `Photo de ${f.nom}`
+      })}
       <div class="family-info">
         <div class="family-name">${f.nom}</div>
         <div class="family-streak">🔥 ${f.streak} jours • 🏆 ${f.badgeCount} trophées</div>
