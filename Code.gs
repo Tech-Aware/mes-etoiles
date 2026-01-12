@@ -21,6 +21,42 @@ const TASK_IDS = [
 ];
 
 // ==================================================
+// CONFIGURATION - COLONNE JOURS (TÂCHES)
+// ==================================================
+function creerColonneJoursTaches() {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName('Tâches');
+    if (!sheet) {
+      Logger.log('[creerColonneJoursTaches] Feuille "Tâches" introuvable, création impossible.');
+      throw new Error('Feuille "Tâches" introuvable.');
+    }
+
+    const headerRow = 1;
+    const columnIndex = 9; // Colonne I
+    const cell = sheet.getRange(headerRow, columnIndex);
+    const currentValue = String(cell.getValue() || '').trim();
+
+    if (currentValue === 'Jours') {
+      Logger.log('[creerColonneJoursTaches] Colonne Jours déjà présente en I1.');
+      return { success: true, message: 'Colonne Jours déjà présente en I1.' };
+    }
+
+    if (currentValue && currentValue !== 'Jours') {
+      Logger.log(`[creerColonneJoursTaches] Valeur existante en I1 ("${currentValue}"), écrasement avec "Jours".`);
+    } else {
+      Logger.log('[creerColonneJoursTaches] Création de la colonne Jours en I1.');
+    }
+
+    cell.setValue('Jours');
+    return { success: true, message: 'Colonne Jours créée en I1.' };
+  } catch (error) {
+    Logger.log(`[creerColonneJoursTaches] Erreur lors de la création : ${error}`);
+    throw new Error('Impossible de créer la colonne Jours dans la feuille Tâches.');
+  }
+}
+
+// ==================================================
 // UTILITAIRES DATES (PARIS)
 // ==================================================
 function getParisDateKey(date) {
@@ -72,6 +108,107 @@ function getParisDateKeyFromValue(value, context) {
     return null;
   }
   return getParisDateKey(parsed);
+}
+
+function getParisDayIndex(date) {
+  const dayIndex = Number(Utilities.formatDate(date, PARIS_TIMEZONE, 'u'));
+  if (Number.isNaN(dayIndex)) {
+    Logger.log('[getParisDayIndex] Index jour invalide, fallback sur Date.getDay().');
+    const fallback = date.getDay();
+    return fallback === 0 ? 7 : fallback;
+  }
+  return dayIndex;
+}
+
+function normaliserJoursTache_(rawValue) {
+  if (!rawValue) {
+    return null;
+  }
+  const value = String(rawValue).toLowerCase().trim();
+  if (!value) {
+    return null;
+  }
+
+  if (['tous', 'toute', 'toutes', 'toute la semaine', 'toute-semaine', 'toute_semaine', '7/7'].includes(value)) {
+    return new Set([1, 2, 3, 4, 5, 6, 7]);
+  }
+
+  if (['week-end', 'weekend', 'week end', 'weekends'].includes(value)) {
+    return new Set([6, 7]);
+  }
+
+  if (['lun-ven', 'lundi-vendredi', 'semaine', 'en semaine'].includes(value)) {
+    return new Set([1, 2, 3, 4, 5]);
+  }
+
+  const separators = /[,;/\n]+/;
+  const parts = value.split(separators).map(part => part.trim()).filter(Boolean);
+  const dayMap = {
+    lun: 1,
+    lundi: 1,
+    mar: 2,
+    mardi: 2,
+    mer: 3,
+    mercredi: 3,
+    jeu: 4,
+    jeudi: 4,
+    ven: 5,
+    vendredi: 5,
+    sam: 6,
+    samedi: 6,
+    dim: 7,
+    dimanche: 7
+  };
+
+  const daySet = new Set();
+  parts.forEach(part => {
+    const normalized = part.replace(/\s+/g, '');
+    if (normalized.includes('-')) {
+      const [startRaw, endRaw] = normalized.split('-').map(token => token.trim());
+      const start = dayMap[startRaw];
+      const end = dayMap[endRaw];
+      if (start && end) {
+        if (start <= end) {
+          for (let day = start; day <= end; day++) {
+            daySet.add(day);
+          }
+        } else {
+          for (let day = start; day <= 7; day++) {
+            daySet.add(day);
+          }
+          for (let day = 1; day <= end; day++) {
+            daySet.add(day);
+          }
+        }
+      }
+      return;
+    }
+
+    const mapped = dayMap[normalized];
+    if (mapped) {
+      daySet.add(mapped);
+    }
+  });
+
+  return daySet.size > 0 ? daySet : null;
+}
+
+function isTacheDisponibleAujourdHui_(rawValue, taskId, rowIndex) {
+  if (!rawValue) {
+    Logger.log(`[isTacheDisponibleAujourdHui] Tâche ${taskId} sans règle jour (ligne ${rowIndex + 2}), disponible par défaut.`);
+    return { available: true, reason: 'aucune_regle' };
+  }
+
+  const days = normaliserJoursTache_(rawValue);
+  if (!days) {
+    Logger.log(`[isTacheDisponibleAujourdHui] Règle jours invalide pour ${taskId} (ligne ${rowIndex + 2}) : "${rawValue}". Tâche conservée par défaut.`);
+    return { available: true, reason: 'regle_invalide' };
+  }
+
+  const todayIndex = getParisDayIndex(new Date());
+  const available = days.has(todayIndex);
+  Logger.log(`[isTacheDisponibleAujourdHui] Tâche ${taskId} (ligne ${rowIndex + 2}) ${available ? 'disponible' : 'indisponible'} aujourd'hui (index=${todayIndex}).`);
+  return { available, reason: available ? 'jour_ok' : 'jour_ko' };
 }
 
 // ==================================================
@@ -232,6 +369,7 @@ function getTachesAssigneesPourPersonne_(personne) {
   const personneIndex = headers.indexOf('Personne');
   const personnesIndex = headers.indexOf('Personnes');
   const ordreIndex = headers.indexOf('Ordre');
+  const joursIndex = headers.indexOf('Jours');
 
   if (idIndex === -1) {
     Logger.log('[getTachesAssigneesPourPersonne] Colonne ID manquante, retour de la liste par défaut.');
@@ -285,6 +423,14 @@ function getTachesAssigneesPourPersonne_(personne) {
     }
 
     const taskId = resolved.taskKey;
+    if (joursIndex !== -1) {
+      const rawJours = row[joursIndex];
+      const availability = isTacheDisponibleAujourdHui_(rawJours, taskId, rowIndex);
+      if (!availability.available) {
+        Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} ignorée pour ${personneKey} (ligne ${rowIndex + 2}) - règle jours.`);
+        return;
+      }
+    }
     const targetIndex = personneIndex !== -1 ? personneIndex : personnesIndex;
     if (targetIndex === -1) {
       addTask(taskId);
