@@ -817,6 +817,7 @@ function submitEvaluation() {
   btn.innerHTML = '<span class="btn-icon">⏳</span><span class="btn-text">Envoi...</span>';
   
   const taches = taskRatings;
+  const commentaire = (document.getElementById('daily-favorite')?.value || '').trim();
   const emotions = {
     emotion1: selectedEmotions[0] ? selectedEmotions[0].emoji : '',
     emotion2: selectedEmotions[1] ? selectedEmotions[1].emoji : '',
@@ -830,7 +831,7 @@ function submitEvaluation() {
   google.script.run
     .withSuccessHandler(onEvaluationDone)
     .withFailureHandler(handleError)
-    .submitEvaluation(currentUser, taches, emotions, selectedHumeur, '');
+    .submitEvaluation(currentUser, taches, emotions, selectedHumeur, commentaire);
 }
 
 function onEvaluationDone(result) {
