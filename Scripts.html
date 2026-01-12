@@ -5,20 +5,17 @@
 
 let currentUser = null;
 let userData = null;
+let tasksConfig = null;
 
 // Tâches
-const allTasks = [
-  'rangerChambre', 'faireLit', 'rangerJouets', 'aiderTable',
-  'ecouter', 'gentilSoeur', 'politesse', 'pasColere',
-  'dentsMatin', 'dentsSoir', 'habiller', 'cartable'
-];
+let allTasks = [];
 
 const MAX_TASK_SCORE = 1;
 const MIN_TASK_SCORE = -1;
 const MAX_GESTION_SCORE = 1;
 const MIN_GESTION_SCORE = -1;
-const MAX_POINTS = allTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
-const MIN_POINTS = allTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
+let MAX_POINTS = 0;
+let MIN_POINTS = 0;
 
 const emotionSources = [
   { emoji: '🏠', name: 'Maison' },
@@ -47,7 +44,6 @@ const audioConfig = {
 // ==================================================
 document.addEventListener('DOMContentLoaded', function() {
   loadPersonnes();
-  resetForm();
   setupBoutonAudio();
   console.info('Initialisation terminée : audio et effets visuels prêts.');
 });
@@ -60,6 +56,155 @@ function setupBoutonAudio() {
     playButtonSound(btn);
     triggerButtonVisualEffect(btn, event);
   });
+}
+
+function loadTasksConfigForPerson(personne, callback) {
+  console.info('Chargement de la configuration des tâches depuis le Sheets.', { personne });
+  google.script.run
+    .withSuccessHandler(config => {
+      applyTasksConfig(config);
+      if (typeof callback === 'function') callback();
+    })
+    .withFailureHandler(error => {
+      console.error('Impossible de charger la configuration des tâches.', { personne, error });
+      applyTasksConfig(getFallbackTasksConfig());
+      if (typeof callback === 'function') callback();
+    })
+    .getTasksConfig(personne);
+}
+
+function applyTasksConfig(config) {
+  if (!config || !Array.isArray(config.sections)) {
+    console.error('Configuration des tâches invalide.', config);
+    config = getFallbackTasksConfig();
+  }
+
+  tasksConfig = config;
+  allTasks = Array.isArray(config.taskIds) ? config.taskIds : [];
+  MAX_POINTS = Number(config.maxPoints ?? 0);
+  MIN_POINTS = Number(config.minPoints ?? 0);
+
+  if (allTasks.length === 0) {
+    console.warn('Aucune tâche active détectée, utilisation du fallback.');
+    tasksConfig = getFallbackTasksConfig();
+    allTasks = tasksConfig.taskIds;
+    MAX_POINTS = tasksConfig.maxPoints;
+    MIN_POINTS = tasksConfig.minPoints;
+  }
+
+  renderTaskSections(tasksConfig.sections);
+  updatePreviewMaxPoints();
+  resetForm();
+}
+
+function renderTaskSections(sections) {
+  const container = document.getElementById('tasks-sections');
+  if (!container) {
+    console.error('Conteneur des tâches introuvable (#tasks-sections).');
+    return;
+  }
+
+  if (!Array.isArray(sections) || sections.length === 0) {
+    container.innerHTML = '<p class="tasks-empty">Aucune tâche active pour le moment.</p>';
+    return;
+  }
+
+  container.innerHTML = sections.map(section => {
+    const headerClass = getCategoryHeaderClass(section);
+    const tasksHtml = (section.tasks || []).map(task => `
+      <div class="task-card" data-task="${task.id}">
+        <div class="task-visual"><div class="task-emoji">${task.emoji || '⭐'}</div></div>
+        <div class="task-info">
+          <div class="task-name">${task.nom || 'Tâche'}</div>
+          <div class="task-desc">${task.description || ''}</div>
+        </div>
+        <div class="rating-scale">
+          <button class="scale-btn" data-value="-1" onclick="setTaskRating('${task.id}', -1, this)"><span class="scale-emoji">🙁</span></button>
+          <button class="scale-btn" data-value="0" onclick="setTaskRating('${task.id}', 0, this)"><span class="scale-emoji">😐</span></button>
+          <button class="scale-btn" data-value="1" onclick="setTaskRating('${task.id}', 1, this)"><span class="scale-emoji">😊</span></button>
+        </div>
+      </div>
+    `).join('');
+
+    return `
+      <div class="category-section">
+        <div class="category-header ${headerClass}">
+          <span class="category-icon">${section.emoji || '⭐'}</span>
+          <span class="category-title">${section.title || 'Mes tâches'}</span>
+        </div>
+        <div class="tasks-list">
+          ${tasksHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function getCategoryHeaderClass(section) {
+  const type = (section?.type || section?.id || '').toLowerCase();
+  if (type === 'corvees' || type === 'corvées') return 'corvees-bg';
+  if (type === 'comportement') return 'comportement-bg';
+  if (type === 'rituels') return 'rituels-bg';
+  return 'default-bg';
+}
+
+function updatePreviewMaxPoints() {
+  const maxElement = document.querySelector('.preview-max');
+  if (maxElement) {
+    maxElement.textContent = `/ ${MAX_POINTS}`;
+  }
+}
+
+function getFallbackTasksConfig() {
+  const fallbackSections = [
+    {
+      id: 'corvees',
+      title: 'Mes petits travaux',
+      emoji: '🧹',
+      type: 'corvees',
+      tasks: [
+        { id: 'rangerChambre', nom: 'Ranger ma chambre', description: 'Mes affaires sont bien rangées', emoji: '🛏️' },
+        { id: 'faireLit', nom: 'Faire mon lit', description: 'Ma couette est bien mise', emoji: '🛌' },
+        { id: 'rangerJouets', nom: 'Ranger mes jouets', description: 'Mes jouets sont à leur place', emoji: '🧸' },
+        { id: 'aiderTable', nom: 'Aider à table', description: 'Mettre ou débarrasser', emoji: '🍽️' }
+      ]
+    },
+    {
+      id: 'comportement',
+      title: 'Mon comportement',
+      emoji: '💛',
+      type: 'comportement',
+      tasks: [
+        { id: 'ecouter', nom: 'Écouter papa et maman', description: 'J\'écoute quand on me parle', emoji: '👂' },
+        { id: 'gentilSoeur', nom: 'Gentil avec ma sœur', description: 'On joue bien ensemble', emoji: '👭' },
+        { id: 'politesse', nom: 'Les mots magiques', description: 'S\'il te plaît, merci, pardon', emoji: '🙏' },
+        { id: 'pasColere', nom: 'Calme et zen', description: 'Pas de grosse colère', emoji: '😌' }
+      ]
+    },
+    {
+      id: 'rituels',
+      title: 'Mes rituels',
+      emoji: '🌅',
+      type: 'rituels',
+      tasks: [
+        { id: 'dentsMatin', nom: 'Brosser mes dents', description: 'Après le petit-déjeuner', emoji: '🦷' },
+        { id: 'dentsSoir', nom: 'Brosser mes dents', description: 'Avant le dodo', emoji: '🦷' },
+        { id: 'habiller', nom: 'M\'habiller tout seul', description: 'Comme un grand !', emoji: '👕' },
+        { id: 'cartable', nom: 'Préparer mes affaires', description: 'Mon sac est prêt', emoji: '🎒' }
+      ]
+    }
+  ];
+
+  const taskIds = fallbackSections.flatMap(section => section.tasks.map(task => task.id));
+  const maxPoints = taskIds.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
+  const minPoints = taskIds.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
+
+  return {
+    sections: fallbackSections,
+    taskIds,
+    maxPoints,
+    minPoints
+  };
 }
 
 function ensureAudioContext() {
@@ -359,23 +504,25 @@ function onUserLoaded(data) {
   
   document.getElementById('screen-home').classList.remove('active');
   document.getElementById('screen-main').classList.add('active');
-  
-  if (data.evaluatedToday) {
-    document.getElementById('eval-form').style.display = 'none';
-    document.getElementById('already-done').style.display = 'block';
-  } else {
-    document.getElementById('eval-form').style.display = 'block';
-    document.getElementById('already-done').style.display = 'none';
-    resetForm();
-    resetFormUI();
-  }
-  
-  loadStatsPage();
-  loadFamilyPage();
-  loadRewardsPage();
-  loadBadgesPage();
-  
-  hideToast();
+
+  loadTasksConfigForPerson(data.nom, () => {
+    if (data.evaluatedToday) {
+      document.getElementById('eval-form').style.display = 'none';
+      document.getElementById('already-done').style.display = 'block';
+    } else {
+      document.getElementById('eval-form').style.display = 'block';
+      document.getElementById('already-done').style.display = 'none';
+      resetForm();
+      resetFormUI();
+    }
+
+    loadStatsPage();
+    loadFamilyPage();
+    loadRewardsPage();
+    loadBadgesPage();
+
+    hideToast();
+  });
 }
 
 function resetFormUI() {
@@ -572,11 +719,12 @@ function updatePreview() {
   }
   
   document.getElementById('preview-score').textContent = total;
-  const normalized = (total - MIN_POINTS) / (MAX_POINTS - MIN_POINTS);
+  const range = MAX_POINTS - MIN_POINTS || 1;
+  const normalized = (total - MIN_POINTS) / range;
   const fillPercent = Math.max(0, Math.min(100, Math.round(normalized * 100)));
   document.getElementById('preview-fill').style.width = fillPercent + '%';
   
-  const rawPercent = Math.round((total / MAX_POINTS) * 100);
+  const rawPercent = MAX_POINTS ? Math.round((total / MAX_POINTS) * 100) : 0;
   const percent = Math.max(0, Math.min(100, rawPercent));
   let message = '';
   
@@ -652,6 +800,10 @@ function showSuccessModal(result) {
     result.stars >= 4 ? 'BRAVO !' : result.stars >= 2 ? 'Bien joué !' : 'Continue !';
   document.getElementById('success-message').textContent = result.message;
   document.getElementById('success-points').textContent = result.totalJour;
+  const successMax = document.getElementById('success-max');
+  if (successMax) {
+    successMax.textContent = `/ ${MAX_POINTS} étoiles`;
+  }
   
   const starsDisplay = document.getElementById('success-stars-display');
   starsDisplay.textContent = '⭐'.repeat(result.stars) + '☆'.repeat(5 - result.stars);
@@ -704,7 +856,7 @@ function loadStatsPage() {
   if (!userData) return;
   
   document.getElementById('stats-week-points').textContent = userData.weekPoints;
-  const maxWeek = MAX_POINTS * 7;
+  const maxWeek = MAX_POINTS * 7 || 1;
   const weekFill = Math.max(0, Math.min(100, Math.round((userData.weekPoints / maxWeek) * 100)));
   document.getElementById('stats-week-fill').style.width = weekFill + '%';
   document.getElementById('stats-streak').textContent = userData.streak;
