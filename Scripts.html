@@ -52,14 +52,22 @@ function buildAvatarHtml({ photoUrl, avatar, className, alt }) {
   }
 
   const safeAlt = alt ? alt.replace(/"/g, "'") : 'avatar';
-  return `<img class="${className} avatar-img" src="${photoUrl}" alt="${safeAlt}" data-avatar-fallback="${fallback}" onerror="handleAvatarError(this)">`;
+  return `<img class="${className} avatar-img" src="${photoUrl}" alt="${safeAlt}" data-avatar-fallback="${fallback}" data-avatar-url="${photoUrl}" onload="handleAvatarLoad(this)" onerror="handleAvatarError(this)">`;
+}
+
+function handleAvatarLoad(imgElement) {
+  if (!imgElement) return;
+  const alt = imgElement.alt || 'avatar';
+  const url = imgElement.dataset.avatarUrl || imgElement.src;
+  console.info(`[handleAvatarLoad] Photo chargée pour ${alt}.`, { url });
 }
 
 function handleAvatarError(imgElement) {
   if (!imgElement) return;
   const fallback = imgElement.dataset.avatarFallback || '👤';
   const alt = imgElement.alt || 'avatar';
-  console.error(`Chargement photo échoué pour ${alt}. Passage à l'emoji.`);
+  const url = imgElement.dataset.avatarUrl || imgElement.src;
+  console.error(`Chargement photo échoué pour ${alt}. Passage à l'emoji.`, { url });
 
   const span = document.createElement('span');
   span.className = imgElement.className.replace('avatar-img', 'avatar-fallback');
