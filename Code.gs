@@ -45,6 +45,131 @@ const REWARD_SHEET_COLUMNS = {
 const TASKS_SHEET_PREFIX = 'Tâches ';
 const REWARDS_SHEET_PREFIX = 'Récompenses ';
 
+function normalizeHeaderKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function getCellValue(row, index) {
+  if (index === null || index === undefined || index < 0) {
+    return '';
+  }
+  return row[index];
+}
+
+function buildTaskColumnsFromHeader(header, contextLabel) {
+  if (!header || header.length === 0) {
+    Logger.log(`[buildTaskColumnsFromHeader] En-tête introuvable (${contextLabel}). Utilisation des colonnes par défaut.`);
+    return { ...TASK_SHEET_COLUMNS };
+  }
+
+  const headerMap = {};
+  header.forEach((cell, index) => {
+    const key = normalizeHeaderKey(cell);
+    if (key) {
+      headerMap[key] = index;
+    }
+  });
+
+  const hasNewFormat = headerMap.idtache !== undefined || headerMap.nomtache !== undefined;
+  if (hasNewFormat) {
+    return {
+      id: headerMap.idtache ?? TASK_SHEET_COLUMNS.id,
+      nom: headerMap.nomtache ?? TASK_SHEET_COLUMNS.nom,
+      description: headerMap.description ?? TASK_SHEET_COLUMNS.description,
+      emoji: headerMap.emojitache ?? TASK_SHEET_COLUMNS.emoji,
+      sectionId: headerMap.idsection ?? TASK_SHEET_COLUMNS.sectionId,
+      sectionTitle: headerMap.titresection ?? TASK_SHEET_COLUMNS.sectionTitle,
+      sectionEmoji: headerMap.emojisection ?? TASK_SHEET_COLUMNS.sectionEmoji,
+      sectionType: headerMap.typesection ?? TASK_SHEET_COLUMNS.sectionType,
+      sectionOrder: headerMap.ordresection ?? TASK_SHEET_COLUMNS.sectionOrder,
+      taskOrder: headerMap.ordretache ?? TASK_SHEET_COLUMNS.taskOrder,
+      active: headerMap.actif ?? TASK_SHEET_COLUMNS.active
+    };
+  }
+
+  const hasLegacyFormat = headerMap.categorie !== undefined || headerMap.pointsmax !== undefined;
+  if (hasLegacyFormat) {
+    return {
+      id: headerMap.id ?? 0,
+      nom: headerMap.nom ?? 2,
+      description: headerMap.description ?? 4,
+      emoji: headerMap.emoji ?? 3,
+      sectionId: headerMap.categorie ?? 1,
+      sectionTitle: headerMap.categorie ?? 1,
+      sectionEmoji: headerMap.emoji ?? 3,
+      sectionType: headerMap.categorie ?? 1,
+      sectionOrder: headerMap.ordre ?? 6,
+      taskOrder: headerMap.ordre ?? 6,
+      active: headerMap.actif ?? 7
+    };
+  }
+
+  Logger.log(`[buildTaskColumnsFromHeader] En-têtes non reconnus (${contextLabel}). Utilisation des colonnes par défaut.`);
+  return { ...TASK_SHEET_COLUMNS };
+}
+
+function buildRewardColumnsFromHeader(header, contextLabel) {
+  if (!header || header.length === 0) {
+    Logger.log(`[buildRewardColumnsFromHeader] En-tête introuvable (${contextLabel}). Utilisation des colonnes par défaut.`);
+    return { ...REWARD_SHEET_COLUMNS };
+  }
+
+  const headerMap = {};
+  header.forEach((cell, index) => {
+    const key = normalizeHeaderKey(cell);
+    if (key) {
+      headerMap[key] = index;
+    }
+  });
+
+  const hasNewFormat = headerMap.idrecompense !== undefined || headerMap.nomrecompense !== undefined;
+  if (hasNewFormat) {
+    return {
+      id: headerMap.idrecompense ?? REWARD_SHEET_COLUMNS.id,
+      nom: headerMap.nomrecompense ?? REWARD_SHEET_COLUMNS.nom,
+      emoji: headerMap.emoji ?? REWARD_SHEET_COLUMNS.emoji,
+      cout: headerMap.cout ?? REWARD_SHEET_COLUMNS.cout,
+      active: headerMap.actif ?? REWARD_SHEET_COLUMNS.active
+    };
+  }
+
+  const hasLegacyFormat = headerMap.categorie !== undefined || headerMap.cout !== undefined;
+  if (hasLegacyFormat) {
+    return {
+      id: headerMap.id ?? 0,
+      nom: headerMap.nom ?? 1,
+      emoji: headerMap.emoji ?? 2,
+      cout: headerMap.cout ?? 3,
+      active: headerMap.active ?? headerMap.actif ?? 5
+    };
+  }
+
+  Logger.log(`[buildRewardColumnsFromHeader] En-têtes non reconnus (${contextLabel}). Utilisation des colonnes par défaut.`);
+  return { ...REWARD_SHEET_COLUMNS };
+}
+
+function buildTasksConfigFromSheet(sheet, contextLabel) {
+  const data = sheet.getDataRange().getValues();
+  const header = data.shift() || [];
+  const columns = buildTaskColumnsFromHeader(header, contextLabel);
+  return buildTasksConfigFromRows(data, columns, contextLabel);
+}
+
+function getRewardsRowsWithColumns(sheet, contextLabel) {
+  const data = sheet.getDataRange().getValues();
+  const header = data.shift() || [];
+  const columns = buildRewardColumnsFromHeader(header, contextLabel);
+  return {
+    rows: data,
+    columns
+  };
+}
+
 function buildDefaultTasksConfig() {
   const sections = [
     {
@@ -117,8 +242,7 @@ function getTasksConfig(personne) {
     const personSheetName = `${TASKS_SHEET_PREFIX}${personneKey}`;
     const personSheet = personneKey ? ss.getSheetByName(personSheetName) : null;
     if (personSheet) {
-      const rows = personSheet.getDataRange().getValues().slice(1);
-      const configFromPerson = buildTasksConfigFromRows(rows, TASK_SHEET_COLUMNS, personSheetName);
+      const configFromPerson = buildTasksConfigFromSheet(personSheet, personSheetName);
       if (configFromPerson) {
         return configFromPerson;
       }
@@ -132,8 +256,7 @@ function getTasksConfig(personne) {
       return buildDefaultTasksConfig();
     }
 
-    const rows = sheet.getDataRange().getValues().slice(1);
-    const configFromSheet = buildTasksConfigFromRows(rows, TASK_SHEET_COLUMNS, 'Tâches');
+    const configFromSheet = buildTasksConfigFromSheet(sheet, 'Tâches');
     if (configFromSheet) {
       return configFromSheet;
     }
@@ -153,26 +276,27 @@ function buildTasksConfigFromRows(rows, columns, contextLabel) {
   let hasRows = false;
 
   rows.forEach((row, index) => {
-    const activeValue = String(row[columns.active] || '').trim();
+    const activeValue = String(getCellValue(row, columns.active) || '').trim();
     if (activeValue && activeValue.toLowerCase() !== 'oui') {
       return;
     }
 
-    const id = String(row[columns.id] || '').trim();
-    const nom = String(row[columns.nom] || '').trim();
+    const id = String(getCellValue(row, columns.id) || '').trim();
+    const nom = String(getCellValue(row, columns.nom) || '').trim();
     if (!id || !nom) {
       Logger.log(`[buildTasksConfigFromRows] Ligne ${index + 2} ignorée (${contextLabel}) : id/nom manquants.`);
       return;
     }
 
-    const sectionId = String(row[columns.sectionId] || 'section').trim();
-    const sectionTitle = String(row[columns.sectionTitle] || 'Mes tâches').trim();
-    const sectionEmoji = String(row[columns.sectionEmoji] || '⭐').trim();
-    const sectionType = String(row[columns.sectionType] || sectionId).trim();
-    const sectionOrder = Number(row[columns.sectionOrder] || 0);
-    const taskOrder = Number(row[columns.taskOrder] || 0);
-    const description = String(row[columns.description] || '').trim();
-    const emoji = String(row[columns.emoji] || '⭐').trim();
+    const rawSectionId = String(getCellValue(row, columns.sectionId) || 'section').trim();
+    const sectionId = rawSectionId || 'section';
+    const sectionTitle = String(getCellValue(row, columns.sectionTitle) || rawSectionId || 'Mes tâches').trim();
+    const sectionEmoji = String(getCellValue(row, columns.sectionEmoji) || getCellValue(row, columns.emoji) || '⭐').trim();
+    const sectionType = String(getCellValue(row, columns.sectionType) || sectionId).trim();
+    const sectionOrder = Number(getCellValue(row, columns.sectionOrder) || 0);
+    const taskOrder = Number(getCellValue(row, columns.taskOrder) || 0);
+    const description = String(getCellValue(row, columns.description) || '').trim();
+    const emoji = String(getCellValue(row, columns.emoji) || '⭐').trim();
 
     if (!sectionsMap[sectionId]) {
       sectionsMap[sectionId] = {
@@ -788,15 +912,17 @@ function getRewardsForPerson(personneKey, weekPoints) {
   const personSheetName = `${REWARDS_SHEET_PREFIX}${personneKey}`;
   const rewardsPersonSheet = personneKey ? ss.getSheetByName(personSheetName) : null;
   if (rewardsPersonSheet) {
-    const rows = rewardsPersonSheet.getDataRange().getValues().slice(1);
+    const rewardsData = getRewardsRowsWithColumns(rewardsPersonSheet, personSheetName);
+    const rows = rewardsData.rows;
+    const columns = rewardsData.columns;
     const rewards = rows
-      .filter(row => String(row[REWARD_SHEET_COLUMNS.active] || '').trim().toLowerCase() === 'oui')
+      .filter(row => String(getCellValue(row, columns.active) || '').trim().toLowerCase() === 'oui')
       .map(row => ({
-        id: row[REWARD_SHEET_COLUMNS.id],
-        nom: row[REWARD_SHEET_COLUMNS.nom],
-        emoji: row[REWARD_SHEET_COLUMNS.emoji],
-        cout: row[REWARD_SHEET_COLUMNS.cout],
-        disponible: weekPoints >= row[REWARD_SHEET_COLUMNS.cout]
+        id: getCellValue(row, columns.id),
+        nom: getCellValue(row, columns.nom),
+        emoji: getCellValue(row, columns.emoji),
+        cout: getCellValue(row, columns.cout),
+        disponible: weekPoints >= getCellValue(row, columns.cout)
       }));
 
     Logger.log(`[getRewardsForPerson] Récompenses chargées depuis "${personSheetName}" : ${rewards.length}.`);
@@ -809,15 +935,17 @@ function getRewardsForPerson(personneKey, weekPoints) {
     return [];
   }
 
-  const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
-  return rewardsData
-    .filter(row => String(row[REWARD_SHEET_COLUMNS.active] || '').trim().toLowerCase() === 'oui')
+  const rewardsData = getRewardsRowsWithColumns(rewardsSheet, 'Récompenses');
+  const rows = rewardsData.rows;
+  const columns = rewardsData.columns;
+  return rows
+    .filter(row => String(getCellValue(row, columns.active) || '').trim().toLowerCase() === 'oui')
     .map(row => ({
-      id: row[REWARD_SHEET_COLUMNS.id],
-      nom: row[REWARD_SHEET_COLUMNS.nom],
-      emoji: row[REWARD_SHEET_COLUMNS.emoji],
-      cout: row[REWARD_SHEET_COLUMNS.cout],
-      disponible: weekPoints >= row[REWARD_SHEET_COLUMNS.cout]
+      id: getCellValue(row, columns.id),
+      nom: getCellValue(row, columns.nom),
+      emoji: getCellValue(row, columns.emoji),
+      cout: getCellValue(row, columns.cout),
+      disponible: weekPoints >= getCellValue(row, columns.cout)
     }));
 }
 
@@ -826,15 +954,17 @@ function findRewardForPerson(personneKey, rewardId) {
   const personSheetName = `${REWARDS_SHEET_PREFIX}${personneKey}`;
   const rewardsPersonSheet = personneKey ? ss.getSheetByName(personSheetName) : null;
   if (rewardsPersonSheet) {
-    const rows = rewardsPersonSheet.getDataRange().getValues().slice(1);
-    const reward = rows.find(row => String(row[REWARD_SHEET_COLUMNS.id] || '').trim() === rewardId);
+    const rewardsData = getRewardsRowsWithColumns(rewardsPersonSheet, personSheetName);
+    const rows = rewardsData.rows;
+    const columns = rewardsData.columns;
+    const reward = rows.find(row => String(getCellValue(row, columns.id) || '').trim() === rewardId);
     return reward
       ? {
-          id: reward[REWARD_SHEET_COLUMNS.id],
-          nom: reward[REWARD_SHEET_COLUMNS.nom],
-          emoji: reward[REWARD_SHEET_COLUMNS.emoji],
-          cout: reward[REWARD_SHEET_COLUMNS.cout],
-          active: String(reward[REWARD_SHEET_COLUMNS.active] || '').trim().toLowerCase() === 'oui'
+          id: getCellValue(reward, columns.id),
+          nom: getCellValue(reward, columns.nom),
+          emoji: getCellValue(reward, columns.emoji),
+          cout: getCellValue(reward, columns.cout),
+          active: String(getCellValue(reward, columns.active) || '').trim().toLowerCase() === 'oui'
         }
       : null;
   }
@@ -844,15 +974,17 @@ function findRewardForPerson(personneKey, rewardId) {
     return null;
   }
 
-  const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
-  const reward = rewardsData.find(row => String(row[REWARD_SHEET_COLUMNS.id] || '').trim() === rewardId);
+  const rewardsData = getRewardsRowsWithColumns(rewardsSheet, 'Récompenses');
+  const rows = rewardsData.rows;
+  const columns = rewardsData.columns;
+  const reward = rows.find(row => String(getCellValue(row, columns.id) || '').trim() === rewardId);
   return reward
     ? {
-        id: reward[REWARD_SHEET_COLUMNS.id],
-        nom: reward[REWARD_SHEET_COLUMNS.nom],
-        emoji: reward[REWARD_SHEET_COLUMNS.emoji],
-        cout: reward[REWARD_SHEET_COLUMNS.cout],
-        active: String(reward[REWARD_SHEET_COLUMNS.active] || '').trim().toLowerCase() === 'oui'
+        id: getCellValue(reward, columns.id),
+        nom: getCellValue(reward, columns.nom),
+        emoji: getCellValue(reward, columns.emoji),
+        cout: getCellValue(reward, columns.cout),
+        active: String(getCellValue(reward, columns.active) || '').trim().toLowerCase() === 'oui'
       }
     : null;
 }
