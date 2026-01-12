@@ -743,6 +743,16 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const lastRow = sheet.getLastRow();
     const newId = 'E' + String(lastRow).padStart(4, '0');
     const now = new Date();
+
+    const MAX_COMMENTAIRE_LENGTH = 400;
+    const commentaireBrut = String(commentaire || '').trim();
+    let commentaireSafe = commentaireBrut;
+    if (!commentaireSafe) {
+      Logger.log(`[submitEvaluation] Commentaire vide pour ${personne}.`);
+    } else if (commentaireSafe.length > MAX_COMMENTAIRE_LENGTH) {
+      Logger.log(`[submitEvaluation] Commentaire trop long pour ${personne} (longueur=${commentaireSafe.length}, max=${MAX_COMMENTAIRE_LENGTH}). Tronquage appliqué.`);
+      commentaireSafe = commentaireSafe.slice(0, MAX_COMMENTAIRE_LENGTH);
+    }
     
     const assignedResult = getTachesAssigneesPourPersonne_(personne);
     const assignedTasks = assignedResult.taskIds;
@@ -857,7 +867,7 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       totalJour,
       // Meta
       humeur,
-      commentaire || '',
+      commentaireSafe,
       dynamicPayload
     ]);
     
