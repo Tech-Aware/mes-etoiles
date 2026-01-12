@@ -14,7 +14,7 @@ Ce document décrit les en-têtes attendus pour chaque feuille du classeur.
 `ID | Nom | Emoji | Description`
 
 ### Tâches
-`ID | Catégorie | Nom | Emoji | Description | PointsMax | Ordre`
+`ID | Catégorie | Nom | Emoji | Description | PointsMax | Ordre | Personne`
 
 ### Échelle
 `Niveau | Emoji | Couleur | Label | Description`
