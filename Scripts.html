@@ -5,6 +5,9 @@
 
 let currentUser = null;
 let userData = null;
+let taskDefinitions = [];
+let taskDefinitionsById = {};
+let knownTaskIds = [];
 
 // Tâches
 const BASE_TASKS = [
@@ -311,13 +314,128 @@ function playSlideTone(context, startFrequency, endFrequency, duration, waveType
 
 function resetForm() {
   taskRatings = {};
-  BASE_TASKS.forEach(taskId => {
+  const tasksToInit = knownTaskIds.length > 0 ? knownTaskIds : BASE_TASKS;
+  tasksToInit.forEach(taskId => {
     taskRatings[taskId] = activeTasks.includes(taskId) ? null : 0;
   });
   selectedEmotions = [];
   selectedSourcesByEmotion = {};
   gestionScore = null;
   selectedHumeur = null;
+}
+
+function setTaskDefinitions(tasks = []) {
+  taskDefinitions = Array.isArray(tasks) ? tasks : [];
+  taskDefinitionsById = taskDefinitions.reduce((acc, task) => {
+    if (task?.id) {
+      acc[task.id] = task;
+    }
+    return acc;
+  }, {});
+  knownTaskIds = taskDefinitions.map(task => task.id);
+  console.info('[setTaskDefinitions] Définitions de tâches chargées.', { count: taskDefinitions.length });
+  renderTaskCards(taskDefinitions);
+}
+
+function normalizeCategorie(value) {
+  if (!value) return 'comportement';
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (normalized.includes('corvee') || normalized.includes('travaux')) return 'corvees';
+  if (normalized.includes('rituel')) return 'rituels';
+  if (normalized.includes('comportement')) return 'comportement';
+  return 'comportement';
+}
+
+function getCategoryContainer(categoryKey) {
+  const container = document.querySelector(`.tasks-list[data-category="${categoryKey}"]`);
+  if (!container) {
+    console.warn('[getCategoryContainer] Conteneur introuvable, fallback comportement.', { categoryKey });
+    return document.querySelector('.tasks-list[data-category="comportement"]');
+  }
+  return container;
+}
+
+function updateExistingTaskCard(card, task) {
+  if (!card || !task) return;
+  const nameEl = card.querySelector('.task-name');
+  const descEl = card.querySelector('.task-desc');
+  const emojiEl = card.querySelector('.task-emoji');
+  if (nameEl && task.nom) nameEl.textContent = task.nom;
+  if (descEl && task.description) descEl.textContent = task.description;
+  if (emojiEl && task.emoji) emojiEl.textContent = task.emoji;
+  const scaleButtons = card.querySelectorAll('.scale-btn');
+  scaleButtons.forEach(btn => btn.setAttribute('onclick', `setTaskRating('${task.id}', ${btn.dataset.value}, this)`));
+}
+
+function createTaskCard(task) {
+  const card = document.createElement('div');
+  card.className = 'task-card';
+  card.dataset.task = task.id;
+
+  card.innerHTML = `
+    <div class="task-visual"><div class="task-emoji">${task.emoji || '✨'}</div></div>
+    <div class="task-info">
+      <div class="task-name">${task.nom || task.id}</div>
+      <div class="task-desc">${task.description || ''}</div>
+    </div>
+    <div class="rating-scale">
+      <button class="scale-btn" data-value="-1" onclick="setTaskRating('${task.id}', -1, this)"><span class="scale-emoji">🙁</span></button>
+      <button class="scale-btn" data-value="0" onclick="setTaskRating('${task.id}', 0, this)"><span class="scale-emoji">😐</span></button>
+      <button class="scale-btn" data-value="1" onclick="setTaskRating('${task.id}', 1, this)"><span class="scale-emoji">😊</span></button>
+    </div>
+  `;
+
+  return card;
+}
+
+function renderTaskCards(tasks = []) {
+  if (!Array.isArray(tasks)) {
+    console.warn('[renderTaskCards] Format de tâches invalide, rendu annulé.', { tasks });
+    return;
+  }
+  const containers = document.querySelectorAll('.tasks-list[data-category]');
+  if (!containers.length) {
+    console.warn('[renderTaskCards] Aucun conteneur de tâches trouvé.');
+    return;
+  }
+
+  const existingCards = Array.from(document.querySelectorAll('.task-card[data-task]'));
+  const existingById = existingCards.reduce((acc, card) => {
+    acc[card.dataset.task] = card;
+    return acc;
+  }, {});
+  const renderedIds = new Set();
+
+  const sortedTasks = [...tasks].sort((a, b) => {
+    const orderA = Number.isFinite(a.ordre) ? a.ordre : 9999;
+    const orderB = Number.isFinite(b.ordre) ? b.ordre : 9999;
+    return orderA - orderB;
+  });
+
+  sortedTasks.forEach(task => {
+    if (!task?.id) return;
+    renderedIds.add(task.id);
+    const categoryKey = normalizeCategorie(task.categorie || task.categorieNormalisee);
+    const container = getCategoryContainer(categoryKey);
+    const existing = existingById[task.id];
+    if (existing) {
+      updateExistingTaskCard(existing, task);
+      if (existing.parentElement !== container) {
+        container.appendChild(existing);
+      }
+      return;
+    }
+    const newCard = createTaskCard(task);
+    container.appendChild(newCard);
+  });
+
+  existingCards.forEach(card => {
+    if (!renderedIds.has(card.dataset.task)) {
+      card.remove();
+    }
+  });
+
+  console.info('[renderTaskCards] Cartes de tâches rendues.', { count: sortedTasks.length });
 }
 
 function setActiveTasks(taskIds, allowEmpty = false) {
@@ -333,7 +451,8 @@ function setActiveTasks(taskIds, allowEmpty = false) {
       activeTasks = [...BASE_TASKS];
     }
   } else {
-    activeTasks = taskIds.filter(taskId => BASE_TASKS.includes(taskId));
+    const validTaskIds = knownTaskIds.length > 0 ? knownTaskIds : BASE_TASKS;
+    activeTasks = taskIds.filter(taskId => validTaskIds.includes(taskId));
     if (activeTasks.length === 0) {
       console.warn('[setActiveTasks] Aucune tâche reconnue, retour à la liste par défaut.', { taskIds });
       activeTasks = [...BASE_TASKS];
@@ -439,6 +558,10 @@ function loadTaskAssignments(personne) {
     .withSuccessHandler(response => {
       const taskIds = response?.taskIds ?? [];
       const allowEmpty = response?.allowEmpty ?? false;
+      const tasks = response?.tasks ?? [];
+      if (tasks.length > 0) {
+        setTaskDefinitions(tasks);
+      }
       setActiveTasks(taskIds, allowEmpty);
       applyTaskVisibility();
       resetForm();

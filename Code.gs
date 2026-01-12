@@ -5,7 +5,7 @@
 
 const SS_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const PARIS_TIMEZONE = 'Europe/Paris';
-const TASK_IDS = [
+const BASE_TASK_IDS = [
   'rangerChambre',
   'faireLit',
   'rangerJouets',
@@ -19,6 +19,13 @@ const TASK_IDS = [
   'habiller',
   'cartable'
 ];
+
+const TASK_CATEGORY_KEYS = {
+  corvees: 'corvees',
+  comportement: 'comportement',
+  rituels: 'rituels',
+  autres: 'autres'
+};
 
 // ==================================================
 // CONFIGURATION - COLONNE JOURS (TÂCHES)
@@ -178,6 +185,34 @@ function getParisDayIndex(date) {
     return fallback === 0 ? 7 : fallback;
   }
   return dayIndex;
+}
+
+function normaliserTexte_(valeur) {
+  if (!valeur) {
+    return '';
+  }
+  return String(valeur)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function normaliserCategorieTache_(categorie) {
+  const normalized = normaliserTexte_(categorie);
+  if (!normalized) {
+    return TASK_CATEGORY_KEYS.autres;
+  }
+  if (normalized.includes('corvee') || normalized.includes('travaux')) {
+    return TASK_CATEGORY_KEYS.corvees;
+  }
+  if (normalized.includes('comportement')) {
+    return TASK_CATEGORY_KEYS.comportement;
+  }
+  if (normalized.includes('rituel')) {
+    return TASK_CATEGORY_KEYS.rituels;
+  }
+  return TASK_CATEGORY_KEYS.autres;
 }
 
 function normaliserJoursTache_(rawValue) {
@@ -395,16 +430,95 @@ function getSources() {
 // ==================================================
 // RÉCUPÉRER LES TÂCHES ASSIGNÉES
 // ==================================================
+function getTachesFeuille_() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName('Tâches');
+  if (!sheet) {
+    Logger.log('[getTachesFeuille] Feuille Tâches introuvable.');
+    throw new Error('Feuille Tâches introuvable.');
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) {
+    Logger.log('[getTachesFeuille] Feuille Tâches vide.');
+    return { headers: [], rows: [], indexes: {} };
+  }
+
+  const headers = data[0].map(value => String(value || '').trim());
+  const indexes = {
+    id: headers.indexOf('ID'),
+    categorie: headers.indexOf('Catégorie'),
+    nom: headers.indexOf('Nom'),
+    emoji: headers.indexOf('Emoji'),
+    description: headers.indexOf('Description'),
+    pointsMax: headers.indexOf('PointsMax'),
+    ordre: headers.indexOf('Ordre'),
+    personne: headers.indexOf('Personne'),
+    personnes: headers.indexOf('Personnes'),
+    jours: headers.indexOf('Jours')
+  };
+
+  return { headers, rows: data.slice(1), indexes };
+}
+
+function getTachesDefinitions_() {
+  try {
+    const { rows, indexes } = getTachesFeuille_();
+    if (indexes.id === -1) {
+      Logger.log('[getTachesDefinitions] Colonne ID manquante dans la feuille Tâches.');
+      return [];
+    }
+
+    const tasks = [];
+    rows.forEach((row, rowIndex) => {
+      const rawId = String(row[indexes.id] || '').trim();
+      if (!rawId) {
+        Logger.log(`[getTachesDefinitions] ID manquant, ligne ${rowIndex + 2} ignorée.`);
+        return;
+      }
+      const categorie = indexes.categorie !== -1 ? String(row[indexes.categorie] || '').trim() : '';
+      const nom = indexes.nom !== -1 ? String(row[indexes.nom] || '').trim() : rawId;
+      const emoji = indexes.emoji !== -1 ? String(row[indexes.emoji] || '').trim() : '';
+      const description = indexes.description !== -1 ? String(row[indexes.description] || '').trim() : '';
+      const pointsMax = indexes.pointsMax !== -1 ? Number(row[indexes.pointsMax]) : 1;
+      const ordre = indexes.ordre !== -1 ? Number(row[indexes.ordre]) : null;
+
+      tasks.push({
+        id: rawId,
+        categorie,
+        categorieNormalisee: normaliserCategorieTache_(categorie),
+        nom,
+        emoji,
+        description,
+        pointsMax: Number.isNaN(pointsMax) ? 1 : pointsMax,
+        ordre: Number.isNaN(ordre) ? null : ordre
+      });
+    });
+
+    return tasks;
+  } catch (error) {
+    Logger.log(`[getTachesDefinitions] Erreur lors de la lecture des tâches : ${error}`);
+    return [];
+  }
+}
+
 function getTachesPourPersonne(personne) {
   try {
     const result = getTachesAssigneesPourPersonne_(personne);
+    const definitions = getTachesDefinitions_();
+    const definitionsById = new Map(definitions.map(task => [task.id, task]));
+    const tasks = result.taskIds
+      .map(taskId => definitionsById.get(taskId))
+      .filter(Boolean);
+    const allTaskIds = definitions.length > 0 ? definitions.map(task => task.id) : BASE_TASK_IDS;
     Logger.log(`[getTachesPourPersonne] Tâches filtrées pour ${personne} : ${JSON.stringify(result.taskIds)}`);
     return {
       personne: String(personne || '').trim(),
       taskIds: result.taskIds,
       allowEmpty: result.allowEmpty,
       reason: result.reason,
-      allTaskIds: TASK_IDS
+      allTaskIds,
+      tasks
     };
   } catch (error) {
     Logger.log(`[getTachesPourPersonne] Erreur pour ${personne} : ${error}`);
@@ -416,87 +530,54 @@ function getTachesAssigneesPourPersonne_(personne) {
   const personneKey = String(personne || '').trim();
   if (!personneKey) {
     Logger.log('[getTachesAssigneesPourPersonne] Personne non renseignée, retour de la liste par défaut.');
-    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'personne_absente' };
-  }
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Tâches');
-  if (!sheet) {
-    Logger.log('[getTachesAssigneesPourPersonne] Feuille Tâches introuvable, retour de la liste par défaut.');
-    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'feuille_absente' };
+    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'personne_absente' };
   }
 
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) {
+  let rows = [];
+  let indexes = {};
+  try {
+    const feuille = getTachesFeuille_();
+    rows = feuille.rows;
+    indexes = feuille.indexes;
+  } catch (error) {
+    Logger.log(`[getTachesAssigneesPourPersonne] Feuille Tâches introuvable, retour de la liste par défaut. Erreur=${error}`);
+    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'feuille_absente' };
+  }
+
+  if (rows.length === 0) {
     Logger.log('[getTachesAssigneesPourPersonne] Feuille Tâches vide, retour de la liste par défaut.');
-    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'feuille_vide' };
+    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'feuille_vide' };
   }
 
-  const headers = data[0].map(value => String(value || '').trim());
-  const idIndex = headers.indexOf('ID');
-  const personneIndex = headers.indexOf('Personne');
-  const personnesIndex = headers.indexOf('Personnes');
-  const ordreIndex = headers.indexOf('Ordre');
-  const joursIndex = headers.indexOf('Jours');
-
-  if (idIndex === -1) {
+  if (indexes.id === -1) {
     Logger.log('[getTachesAssigneesPourPersonne] Colonne ID manquante, retour de la liste par défaut.');
-    return { taskIds: [...TASK_IDS], allowEmpty: false, reason: 'id_manquant' };
+    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'id_manquant' };
   }
 
   const assignedTasks = [];
   const addTask = taskId => {
-    if (!TASK_IDS.includes(taskId)) {
-      Logger.log(`[getTachesAssigneesPourPersonne] ID de tâche inconnu ignoré : ${taskId}`);
-      return;
-    }
     if (!assignedTasks.includes(taskId)) {
       assignedTasks.push(taskId);
     }
   };
 
-  const resolveTaskKey = (row) => {
-    const rawId = String(row[idIndex] || '').trim();
-    if (TASK_IDS.includes(rawId)) {
-      return { taskKey: rawId, source: 'id_direct' };
-    }
-
-    if (rawId) {
-      const match = rawId.match(/\d+/);
-      if (match) {
-        const index = Number(match[0]) - 1;
-        if (index >= 0 && index < TASK_IDS.length) {
-          return { taskKey: TASK_IDS[index], source: 'id_numerique' };
-        }
-        return { taskKey: '', source: 'id_hors_limite' };
-      }
-      return { taskKey: '', source: 'id_invalide' };
-    }
-
-    return { taskKey: '', source: 'id_absent' };
-  };
-
-  data.slice(1).forEach((row, rowIndex) => {
-    const resolved = resolveTaskKey(row);
-    if (!resolved.taskKey) {
-      const rawId = String(row[idIndex] || '').trim();
-      if (rawId) {
-        Logger.log(`[getTachesAssigneesPourPersonne] ID de tâche invalide ignoré : ${rawId} (source=${resolved.source}).`);
-      } else {
-        Logger.log('[getTachesAssigneesPourPersonne] Tâche ignorée : ID manquant dans la feuille Tâches.');
-      }
+  rows.forEach((row, rowIndex) => {
+    const rawId = String(row[indexes.id] || '').trim();
+    if (!rawId) {
+      Logger.log(`[getTachesAssigneesPourPersonne] ID manquant, ligne ${rowIndex + 2} ignorée.`);
       return;
     }
 
-    const taskId = resolved.taskKey;
-    if (joursIndex !== -1) {
-      const rawJours = row[joursIndex];
+    const taskId = rawId;
+    if (indexes.jours !== -1) {
+      const rawJours = row[indexes.jours];
       const availability = isTacheDisponibleAujourdHui_(rawJours, taskId, rowIndex);
       if (!availability.available) {
         Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} ignorée pour ${personneKey} (ligne ${rowIndex + 2}) - règle jours.`);
         return;
       }
     }
-    const targetIndex = personneIndex !== -1 ? personneIndex : personnesIndex;
+    const targetIndex = indexes.personne !== -1 ? indexes.personne : indexes.personnes;
     if (targetIndex === -1) {
       addTask(taskId);
       return;
@@ -520,7 +601,7 @@ function getTachesAssigneesPourPersonne_(personne) {
 
     if (assignees.includes(personneKey)) {
       addTask(taskId);
-      Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} assignée via ${resolved.source} (ligne ${rowIndex + 2}).`);
+      Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} assignée (ligne ${rowIndex + 2}).`);
     } else {
       Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} ignorée pour ${personneKey} (ligne ${rowIndex + 2}).`);
     }
@@ -591,6 +672,9 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const assignedResult = getTachesAssigneesPourPersonne_(personne);
     const assignedTasks = assignedResult.taskIds;
     const assignedSet = new Set(assignedTasks);
+    const taskDefinitions = getTachesDefinitions_();
+    const definitionsById = new Map(taskDefinitions.map(task => [task.id, task]));
+
     const safeTaskValue = (taskKey) => {
       const value = Number(taches && taches[taskKey]);
       if (!assignedSet.has(taskKey)) {
@@ -618,10 +702,31 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       cartable: safeTaskValue('cartable')
     };
 
+    const totalsByCategory = {
+      corvees: 0,
+      comportement: 0,
+      rituels: 0,
+      autres: 0
+    };
+    const dynamicTasks = {};
+
+    assignedTasks.forEach(taskId => {
+      const value = safeTaskValue(taskId);
+      const definition = definitionsById.get(taskId);
+      const categorie = definition ? definition.categorieNormalisee : TASK_CATEGORY_KEYS.autres;
+      if (!definition) {
+        Logger.log(`[submitEvaluation] Définition de tâche introuvable pour ${taskId}, catégorie par défaut appliquée.`);
+      }
+      totalsByCategory[categorie] = (totalsByCategory[categorie] || 0) + value;
+      if (!BASE_TASK_IDS.includes(taskId)) {
+        dynamicTasks[taskId] = value;
+      }
+    });
+
     // Calculs totaux
-    const totalCorvees = tachesNormalisees.rangerChambre + tachesNormalisees.faireLit + tachesNormalisees.rangerJouets + tachesNormalisees.aiderTable;
-    const totalComportement = tachesNormalisees.ecouter + tachesNormalisees.gentilSoeur + tachesNormalisees.politesse + tachesNormalisees.pasColere;
-    const totalRituels = tachesNormalisees.dentsMatin + tachesNormalisees.dentsSoir + tachesNormalisees.habiller + tachesNormalisees.cartable;
+    const totalCorvees = totalsByCategory.corvees;
+    const totalComportement = totalsByCategory.comportement;
+    const totalRituels = totalsByCategory.rituels;
     const totalEmotions = emotions.gestion;
     const totalJour = totalCorvees + totalComportement + totalRituels + totalEmotions;
 
@@ -629,6 +734,19 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     
     Logger.log(`[submitEvaluation] Ajout évaluation ${newId} pour ${personne} (Paris=${getParisDateKey(now)}).`);
     
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const dynamicHeader = 'Taches_Dynamiques';
+    let dynamicColumnIndex = headers.indexOf(dynamicHeader);
+    if (dynamicColumnIndex === -1) {
+      dynamicColumnIndex = headers.length;
+      sheet.getRange(1, dynamicColumnIndex + 1).setValue(dynamicHeader);
+      Logger.log(`[submitEvaluation] Colonne ${dynamicHeader} ajoutée en ${dynamicColumnIndex + 1}.`);
+    } else if (dynamicColumnIndex !== headers.length - 1) {
+      Logger.log(`[submitEvaluation] Colonne ${dynamicHeader} non en dernière position (index=${dynamicColumnIndex + 1}). Valeur ajoutée en fin de ligne.`);
+    }
+
+    const dynamicPayload = Object.keys(dynamicTasks).length > 0 ? JSON.stringify(dynamicTasks) : '';
+
     // Ajouter la ligne
     sheet.appendRow([
       newId,
@@ -664,7 +782,8 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       totalJour,
       // Meta
       humeur,
-      commentaire || ''
+      commentaire || '',
+      dynamicPayload
     ]);
     
     // Enregistrer dans historique émotions
