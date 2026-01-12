@@ -61,6 +61,15 @@ function getCellValue(row, index) {
   return row[index];
 }
 
+function findHeaderIndex(headerMap, keys, fallbackIndex) {
+  for (const key of keys) {
+    if (headerMap[key] !== undefined) {
+      return headerMap[key];
+    }
+  }
+  return fallbackIndex;
+}
+
 function buildTaskColumnsFromHeader(header, contextLabel) {
   if (!header || header.length === 0) {
     Logger.log(`[buildTaskColumnsFromHeader] En-tête introuvable (${contextLabel}). Utilisation des colonnes par défaut.`);
@@ -75,42 +84,26 @@ function buildTaskColumnsFromHeader(header, contextLabel) {
     }
   });
 
-  const hasNewFormat = headerMap.idtache !== undefined || headerMap.nomtache !== undefined;
-  if (hasNewFormat) {
-    return {
-      id: headerMap.idtache ?? TASK_SHEET_COLUMNS.id,
-      nom: headerMap.nomtache ?? TASK_SHEET_COLUMNS.nom,
-      description: headerMap.description ?? TASK_SHEET_COLUMNS.description,
-      emoji: headerMap.emojitache ?? TASK_SHEET_COLUMNS.emoji,
-      sectionId: headerMap.idsection ?? TASK_SHEET_COLUMNS.sectionId,
-      sectionTitle: headerMap.titresection ?? TASK_SHEET_COLUMNS.sectionTitle,
-      sectionEmoji: headerMap.emojisection ?? TASK_SHEET_COLUMNS.sectionEmoji,
-      sectionType: headerMap.typesection ?? TASK_SHEET_COLUMNS.sectionType,
-      sectionOrder: headerMap.ordresection ?? TASK_SHEET_COLUMNS.sectionOrder,
-      taskOrder: headerMap.ordretache ?? TASK_SHEET_COLUMNS.taskOrder,
-      active: headerMap.actif ?? TASK_SHEET_COLUMNS.active
-    };
+  const resolvedColumns = {
+    id: findHeaderIndex(headerMap, ['idtache', 'id', 'taskid'], TASK_SHEET_COLUMNS.id),
+    nom: findHeaderIndex(headerMap, ['nomtache', 'nom', 'tache'], TASK_SHEET_COLUMNS.nom),
+    description: findHeaderIndex(headerMap, ['description'], TASK_SHEET_COLUMNS.description),
+    emoji: findHeaderIndex(headerMap, ['emojitache', 'emoji'], TASK_SHEET_COLUMNS.emoji),
+    sectionId: findHeaderIndex(headerMap, ['idsection', 'categorie', 'section', 'sectionid'], TASK_SHEET_COLUMNS.sectionId),
+    sectionTitle: findHeaderIndex(headerMap, ['titresection', 'categorie', 'section', 'sectiontitle'], TASK_SHEET_COLUMNS.sectionTitle),
+    sectionEmoji: findHeaderIndex(headerMap, ['emojisection', 'emoji'], TASK_SHEET_COLUMNS.sectionEmoji),
+    sectionType: findHeaderIndex(headerMap, ['typesection', 'categorie', 'sectiontype'], TASK_SHEET_COLUMNS.sectionType),
+    sectionOrder: findHeaderIndex(headerMap, ['ordresection', 'ordre'], TASK_SHEET_COLUMNS.sectionOrder),
+    taskOrder: findHeaderIndex(headerMap, ['ordretache', 'ordre'], TASK_SHEET_COLUMNS.taskOrder),
+    active: findHeaderIndex(headerMap, ['actif', 'active'], TASK_SHEET_COLUMNS.active)
+  };
+
+  if (headerMap.id === undefined && headerMap.idtache === undefined && headerMap.nom === undefined && headerMap.nomtache === undefined) {
+    Logger.log(`[buildTaskColumnsFromHeader] En-têtes incomplets (${contextLabel}) : colonnes ID/NOM non détectées.`);
   }
 
-  const hasLegacyFormat = headerMap.categorie !== undefined || headerMap.pointsmax !== undefined;
-  if (hasLegacyFormat) {
-    return {
-      id: headerMap.id ?? 0,
-      nom: headerMap.nom ?? 2,
-      description: headerMap.description ?? 4,
-      emoji: headerMap.emoji ?? 3,
-      sectionId: headerMap.categorie ?? 1,
-      sectionTitle: headerMap.categorie ?? 1,
-      sectionEmoji: headerMap.emoji ?? 3,
-      sectionType: headerMap.categorie ?? 1,
-      sectionOrder: headerMap.ordre ?? 6,
-      taskOrder: headerMap.ordre ?? 6,
-      active: headerMap.actif ?? 7
-    };
-  }
-
-  Logger.log(`[buildTaskColumnsFromHeader] En-têtes non reconnus (${contextLabel}). Utilisation des colonnes par défaut.`);
-  return { ...TASK_SHEET_COLUMNS };
+  Logger.log(`[buildTaskColumnsFromHeader] Mapping (${contextLabel}) : ${JSON.stringify(resolvedColumns)}`);
+  return resolvedColumns;
 }
 
 function buildRewardColumnsFromHeader(header, contextLabel) {
@@ -127,30 +120,20 @@ function buildRewardColumnsFromHeader(header, contextLabel) {
     }
   });
 
-  const hasNewFormat = headerMap.idrecompense !== undefined || headerMap.nomrecompense !== undefined;
-  if (hasNewFormat) {
-    return {
-      id: headerMap.idrecompense ?? REWARD_SHEET_COLUMNS.id,
-      nom: headerMap.nomrecompense ?? REWARD_SHEET_COLUMNS.nom,
-      emoji: headerMap.emoji ?? REWARD_SHEET_COLUMNS.emoji,
-      cout: headerMap.cout ?? REWARD_SHEET_COLUMNS.cout,
-      active: headerMap.actif ?? REWARD_SHEET_COLUMNS.active
-    };
+  const resolvedColumns = {
+    id: findHeaderIndex(headerMap, ['idrecompense', 'id', 'rewardid'], REWARD_SHEET_COLUMNS.id),
+    nom: findHeaderIndex(headerMap, ['nomrecompense', 'nom'], REWARD_SHEET_COLUMNS.nom),
+    emoji: findHeaderIndex(headerMap, ['emoji'], REWARD_SHEET_COLUMNS.emoji),
+    cout: findHeaderIndex(headerMap, ['cout'], REWARD_SHEET_COLUMNS.cout),
+    active: findHeaderIndex(headerMap, ['actif', 'active'], REWARD_SHEET_COLUMNS.active)
+  };
+
+  if (headerMap.id === undefined && headerMap.idrecompense === undefined && headerMap.nom === undefined && headerMap.nomrecompense === undefined) {
+    Logger.log(`[buildRewardColumnsFromHeader] En-têtes incomplets (${contextLabel}) : colonnes ID/NOM non détectées.`);
   }
 
-  const hasLegacyFormat = headerMap.categorie !== undefined || headerMap.cout !== undefined;
-  if (hasLegacyFormat) {
-    return {
-      id: headerMap.id ?? 0,
-      nom: headerMap.nom ?? 1,
-      emoji: headerMap.emoji ?? 2,
-      cout: headerMap.cout ?? 3,
-      active: headerMap.active ?? headerMap.actif ?? 5
-    };
-  }
-
-  Logger.log(`[buildRewardColumnsFromHeader] En-têtes non reconnus (${contextLabel}). Utilisation des colonnes par défaut.`);
-  return { ...REWARD_SHEET_COLUMNS };
+  Logger.log(`[buildRewardColumnsFromHeader] Mapping (${contextLabel}) : ${JSON.stringify(resolvedColumns)}`);
+  return resolvedColumns;
 }
 
 function buildTasksConfigFromSheet(sheet, contextLabel) {
