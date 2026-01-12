@@ -231,6 +231,7 @@ function getTachesAssigneesPourPersonne_(personne) {
   const idIndex = headers.indexOf('ID');
   const personneIndex = headers.indexOf('Personne');
   const personnesIndex = headers.indexOf('Personnes');
+  const ordreIndex = headers.indexOf('Ordre');
 
   if (idIndex === -1) {
     Logger.log('[getTachesAssigneesPourPersonne] Colonne ID manquante, retour de la liste par défaut.');
@@ -248,12 +249,42 @@ function getTachesAssigneesPourPersonne_(personne) {
     }
   };
 
+  const resolveTaskKey = (row) => {
+    const rawId = String(row[idIndex] || '').trim();
+    if (TASK_IDS.includes(rawId)) {
+      return { taskKey: rawId, source: 'id_direct' };
+    }
+
+    if (rawId) {
+      const match = rawId.match(/\d+/);
+      if (match) {
+        const index = Number(match[0]) - 1;
+        if (index >= 0 && index < TASK_IDS.length) {
+          return { taskKey: TASK_IDS[index], source: 'id_numerique' };
+        }
+      }
+    }
+
+    if (ordreIndex !== -1) {
+      const ordreValue = Number(row[ordreIndex]);
+      const ordreIndexBased = ordreValue - 1;
+      if (!Number.isNaN(ordreValue) && ordreIndexBased >= 0 && ordreIndexBased < TASK_IDS.length) {
+        return { taskKey: TASK_IDS[ordreIndexBased], source: 'ordre' };
+      }
+    }
+
+    return { taskKey: '', source: 'inconnu' };
+  };
+
   data.slice(1).forEach((row, rowIndex) => {
-    const taskId = String(row[idIndex] || '').trim();
-    if (!taskId) {
+    const resolved = resolveTaskKey(row);
+    if (!resolved.taskKey) {
+      const rawId = String(row[idIndex] || '').trim();
+      Logger.log(`[getTachesAssigneesPourPersonne] ID de tâche inconnu ignoré : ${rawId}`);
       return;
     }
 
+    const taskId = resolved.taskKey;
     const targetIndex = personneIndex !== -1 ? personneIndex : personnesIndex;
     if (targetIndex === -1) {
       addTask(taskId);
@@ -278,6 +309,7 @@ function getTachesAssigneesPourPersonne_(personne) {
 
     if (assignees.includes(personneKey)) {
       addTask(taskId);
+      Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} assignée via ${resolved.source} (ligne ${rowIndex + 2}).`);
     } else {
       Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} ignorée pour ${personneKey} (ligne ${rowIndex + 2}).`);
     }
