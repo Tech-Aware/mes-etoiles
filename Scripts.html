@@ -519,7 +519,7 @@ function onUserLoaded(data) {
   
   document.getElementById('header-avatar').textContent = data.avatar;
   document.getElementById('header-name').textContent = data.nom;
-  document.getElementById('header-points').textContent = data.weekPoints;
+  document.getElementById('header-points').textContent = data.totalPoints;
   
   document.getElementById('screen-home').classList.remove('active');
   document.getElementById('screen-main').classList.add('active');
@@ -968,7 +968,7 @@ function displayFamily(family) {
         <div class="family-name">${f.nom}</div>
         <div class="family-streak">🔥 ${f.streak} jours • 🏆 ${f.badgeCount} trophées</div>
       </div>
-      <div class="family-pts">${f.weekPoints}</div>
+      <div class="family-pts">${f.totalPoints}</div>
       <div class="family-status">${f.evaluatedToday ? '✅' : '⏳'}</div>
     </div>
   `).join('');
@@ -980,7 +980,7 @@ function displayFamily(family) {
 function loadRewardsPage() {
   if (!userData) return;
   
-  document.getElementById('rewards-total').textContent = userData.weekPoints;
+  document.getElementById('rewards-total').textContent = userData.totalPoints;
   
   const container = document.getElementById('rewards-list');
   container.innerHTML = userData.rewards.map(r => `
@@ -990,7 +990,7 @@ function loadRewardsPage() {
       <div class="reward-cost">${r.cout} ⭐</div>
       ${r.disponible 
         ? `<button class="btn-reward" onclick="claimReward('${r.id}', '${r.nom}')">Je veux ! 🎉</button>`
-        : `<div class="reward-locked">🔒 Encore ${r.cout - userData.weekPoints} étoiles</div>`
+        : `<div class="reward-locked">🔒 Encore ${r.cout - userData.totalPoints} étoiles</div>`
       }
     </div>
   `).join('');

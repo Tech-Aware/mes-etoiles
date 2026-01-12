@@ -27,6 +27,7 @@ const TASK_CATEGORY_KEYS = {
   autres: 'autres'
 };
 
+
 // ==================================================
 // CONFIGURATION - COLONNE JOURS (TÂCHES)
 // ==================================================
@@ -196,6 +197,80 @@ function normaliserTexte_(valeur) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+function getMaxPointsParJour_(personne) {
+  try {
+    const assigned = getTachesAssigneesPourPersonne_(personne);
+    const taskCount = assigned.taskIds.length;
+    const maxPoints = Math.max(1, taskCount + 1);
+    Logger.log(`[getMaxPointsParJour] ${personne} : ${taskCount} tâches, maxPoints=${maxPoints}.`);
+    return { maxPoints, taskCount };
+  } catch (error) {
+    Logger.log(`[getMaxPointsParJour] Erreur pour ${personne} : ${error}`);
+    return { maxPoints: 1, taskCount: 0 };
+  }
+}
+
+function getPointsDisponibles_(personneKey, evalData, claimsData) {
+  const totalGagnes = evalData
+    .filter(row => String(row[3] || '').trim() === personneKey)
+    .reduce((acc, row) => acc + Number(row[27] || 0), 0);
+
+  const totalDepenses = claimsData
+    .filter(row => String(row[2] || '').trim() === personneKey)
+    .filter(row => {
+      const statut = normaliserTexte_(row[5]);
+      return statut !== 'annule' && statut !== 'annulé' && statut !== 'refuse' && statut !== 'refusee' && statut !== 'refusée';
+    })
+    .reduce((acc, row) => acc + Number(row[4] || 0), 0);
+
+  const totalPoints = Math.max(0, totalGagnes - totalDepenses);
+  Logger.log(`[getPointsDisponibles] ${personneKey} : gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
+  return { totalPoints, totalGagnes, totalDepenses };
+}
+
+function mettreAJourCoutsRecompenses() {
+  try {
+    const ss = SpreadsheetApp.openById(SS_ID);
+    const sheet = ss.getSheetByName('Récompenses');
+    if (!sheet) {
+      Logger.log('[mettreAJourCoutsRecompenses] Feuille "Récompenses" introuvable.');
+      throw new Error('Feuille "Récompenses" introuvable.');
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+      Logger.log('[mettreAJourCoutsRecompenses] Aucune récompense à normaliser.');
+      return { success: true, message: 'Aucune récompense à mettre à jour.' };
+    }
+
+    const headers = data[0].map(value => String(value || '').trim());
+    const costIndex = headers.indexOf('Coût');
+    if (costIndex === -1) {
+      Logger.log('[mettreAJourCoutsRecompenses] Colonne "Coût" introuvable.');
+      throw new Error('Colonne "Coût" introuvable.');
+    }
+
+    const updated = data.slice(1).map((row, idx) => {
+      const rawCost = row[costIndex];
+      const cost = Number(rawCost);
+      if (Number.isNaN(cost) || cost < 0) {
+        Logger.log(`[mettreAJourCoutsRecompenses] Coût invalide ligne ${idx + 2} (${rawCost}), remis à 0.`);
+        row[costIndex] = 0;
+      } else {
+        row[costIndex] = Math.round(cost);
+      }
+      return row;
+    });
+
+    sheet.getRange(2, 1, updated.length, data[0].length).setValues(updated);
+    Logger.log('[mettreAJourCoutsRecompenses] Coûts normalisés et mis à jour.');
+    return { success: true, message: 'Coûts des récompenses mis à jour.' };
+  } catch (error) {
+    Logger.log(`[mettreAJourCoutsRecompenses] Erreur : ${error}`);
+    throw new Error('Impossible de mettre à jour les coûts des récompenses.');
+  }
 }
 
 function normaliserCategorieTache_(categorie) {
@@ -873,6 +948,15 @@ function getPersonneData(personne) {
     // Évaluations
     const evalSheet = ss.getSheetByName('Évaluations');
     const evalData = evalSheet.getDataRange().getValues().slice(1);
+
+    // Récompenses demandées (dépenses)
+    const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
+    let claimsData = [];
+    if (!claimsSheet) {
+      Logger.log('[getPersonneData] Feuille "Récompenses_Demandées" introuvable, dépenses ignorées.');
+    } else {
+      claimsData = claimsSheet.getDataRange().getValues().slice(1);
+    }
     
     // Semaine en cours (Paris)
     const todayParis = getParisMidnight(new Date());
@@ -880,6 +964,9 @@ function getPersonneData(personne) {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
     weekEnd.setHours(23, 59, 59);
+
+    const maxPointsData = getMaxPointsParJour_(personneKey);
+    const maxPointsJour = maxPointsData.maxPoints;
     
     let weekPoints = 0;
     let weekDays = 0;
@@ -972,6 +1059,8 @@ function getPersonneData(personne) {
       return def ? { id: def[0], nom: def[1], emoji: def[2] } : null;
     }).filter(b => b);
     
+    const pointsDisponibles = getPointsDisponibles_(personneKey, evalData, claimsData);
+
     // Récompenses
     const rewardsSheet = ss.getSheetByName('Récompenses');
     const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
@@ -981,8 +1070,8 @@ function getPersonneData(personne) {
         id: r[0],
         nom: r[1],
         emoji: r[2],
-        cout: r[3],
-        disponible: weekPoints >= r[3]
+        cout: Number(r[3]) || 0,
+        disponible: pointsDisponibles.totalPoints >= (Number(r[3]) || 0)
       }));
     
     return {
@@ -991,12 +1080,16 @@ function getPersonneData(personne) {
       couleur: personneInfo ? personneInfo[2] : '#6C5CE7',
       age: personneInfo ? personneInfo[3] : 0,
       weekPoints: weekPoints,
+      totalPoints: pointsDisponibles.totalPoints,
+      totalEarned: pointsDisponibles.totalGagnes,
+      totalSpent: pointsDisponibles.totalDepenses,
       weekDays: weekDays,
       dailyScores: dailyScores,
       streak: streak,
       recentEmotions: recentEmotions,
       badges: badges,
       rewards: rewards,
+      maxPointsJour: maxPointsJour,
       evaluatedToday: hasEvaluatedToday(personne),
       weekStart: Utilities.formatDate(weekStart, PARIS_TIMEZONE, 'dd/MM'),
       weekEnd: Utilities.formatDate(weekEnd, PARIS_TIMEZONE, 'dd/MM')
@@ -1018,12 +1111,12 @@ function getFamilyData() {
       nom: p.nom,
       avatar: p.avatar,
       couleur: p.couleur,
-      weekPoints: data.weekPoints,
+      totalPoints: data.totalPoints,
       streak: data.streak,
       badgeCount: data.badges.length,
       evaluatedToday: data.evaluatedToday
     };
-  }).sort((a, b) => b.weekPoints - a.weekPoints);
+  }).sort((a, b) => b.totalPoints - a.totalPoints);
 }
 
 // ==================================================
@@ -1040,10 +1133,14 @@ function claimReward(personne, rewardId) {
   if (!reward) {
     return { success: false, message: 'Récompense introuvable 😕' };
   }
+
+  const rewardCost = Number(reward[3]) || 0;
   
-  if (data.weekPoints < reward[3]) {
-    return { success: false, message: `Il te manque ${reward[3] - data.weekPoints} étoiles 😢` };
+  if (data.totalPoints < rewardCost) {
+    return { success: false, message: `Il te manque ${rewardCost - data.totalPoints} étoiles 😢` };
   }
+
+  Logger.log(`[claimReward] Demande de récompense pour ${personne} (${rewardId}) : coût=${rewardCost}, points dispos=${data.totalPoints}.`);
   
   const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
   const newId = 'C' + String(claimsSheet.getLastRow()).padStart(4, '0');
@@ -1053,7 +1150,7 @@ function claimReward(personne, rewardId) {
     new Date(),
     personne,
     reward[1],
-    reward[3],
+    rewardCost,
     'En attente',
     '',
     ''
