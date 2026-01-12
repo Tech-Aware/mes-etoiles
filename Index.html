@@ -60,200 +60,8 @@
             <p>Comment ça s'est passé aujourd'hui ?</p>
           </div>
           
-          <!-- ===== CORVÉES ===== -->
-          <div class="category-section">
-            <div class="category-header corvees-bg">
-              <span class="category-icon">🧹</span>
-              <span class="category-title">Mes petits travaux</span>
-            </div>
-            <div class="tasks-list">
-              
-              <div class="task-card" data-task="rangerChambre">
-                <div class="task-visual"><div class="task-emoji">🛏️</div></div>
-                <div class="task-info">
-                  <div class="task-name">Ranger ma chambre</div>
-                  <div class="task-desc">Mes affaires sont bien rangées</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('rangerChambre', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('rangerChambre', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('rangerChambre', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="faireLit">
-                <div class="task-visual"><div class="task-emoji">🛌</div></div>
-                <div class="task-info">
-                  <div class="task-name">Faire mon lit</div>
-                  <div class="task-desc">Ma couette est bien mise</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('faireLit', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('faireLit', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('faireLit', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="rangerJouets">
-                <div class="task-visual"><div class="task-emoji">🧸</div></div>
-                <div class="task-info">
-                  <div class="task-name">Ranger mes jouets</div>
-                  <div class="task-desc">Mes jouets sont à leur place</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('rangerJouets', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('rangerJouets', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('rangerJouets', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="aiderTable">
-                <div class="task-visual"><div class="task-emoji">🍽️</div></div>
-                <div class="task-info">
-                  <div class="task-name">Aider à table</div>
-                  <div class="task-desc">Mettre ou débarrasser</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('aiderTable', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('aiderTable', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('aiderTable', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-            </div>
-          </div>
-          
-          <!-- ===== COMPORTEMENT ===== -->
-          <div class="category-section">
-            <div class="category-header comportement-bg">
-              <span class="category-icon">💛</span>
-              <span class="category-title">Mon comportement</span>
-            </div>
-            <div class="tasks-list">
-              
-              <div class="task-card" data-task="ecouter">
-                <div class="task-visual"><div class="task-emoji">👂</div></div>
-                <div class="task-info">
-                  <div class="task-name">Écouter papa et maman</div>
-                  <div class="task-desc">J'écoute quand on me parle</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('ecouter', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('ecouter', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('ecouter', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="gentilSoeur">
-                <div class="task-visual"><div class="task-emoji">👭</div></div>
-                <div class="task-info">
-                  <div class="task-name">Gentil avec ma sœur</div>
-                  <div class="task-desc">On joue bien ensemble</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('gentilSoeur', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('gentilSoeur', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('gentilSoeur', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="politesse">
-                <div class="task-visual"><div class="task-emoji">🙏</div></div>
-                <div class="task-info">
-                  <div class="task-name">Les mots magiques</div>
-                  <div class="task-desc">S'il te plaît, merci, pardon</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('politesse', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('politesse', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('politesse', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="pasColere">
-                <div class="task-visual"><div class="task-emoji">😌</div></div>
-                <div class="task-info">
-                  <div class="task-name">Calme et zen</div>
-                  <div class="task-desc">Pas de grosse colère</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('pasColere', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('pasColere', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('pasColere', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-            </div>
-          </div>
-          
-          <!-- ===== RITUELS ===== -->
-          <div class="category-section">
-            <div class="category-header rituels-bg">
-              <span class="category-icon">🌅</span>
-              <span class="category-title">Mes rituels</span>
-            </div>
-            <div class="tasks-list">
-              
-              <div class="task-card" data-task="dentsMatin">
-                <div class="task-visual">
-                  <div class="task-emoji">🦷</div>
-                  <div class="task-time">☀️ Matin</div>
-                </div>
-                <div class="task-info">
-                  <div class="task-name">Brosser mes dents</div>
-                  <div class="task-desc">Après le petit-déjeuner</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('dentsMatin', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('dentsMatin', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('dentsMatin', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="dentsSoir">
-                <div class="task-visual">
-                  <div class="task-emoji">🦷</div>
-                  <div class="task-time">🌙 Soir</div>
-                </div>
-                <div class="task-info">
-                  <div class="task-name">Brosser mes dents</div>
-                  <div class="task-desc">Avant le dodo</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('dentsSoir', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('dentsSoir', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('dentsSoir', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="habiller">
-                <div class="task-visual"><div class="task-emoji">👕</div></div>
-                <div class="task-info">
-                  <div class="task-name">M'habiller tout seul</div>
-                  <div class="task-desc">Comme un grand !</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('habiller', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('habiller', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('habiller', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="cartable">
-                <div class="task-visual"><div class="task-emoji">🎒</div></div>
-                <div class="task-info">
-                  <div class="task-name">Préparer mes affaires</div>
-                  <div class="task-desc">Mon sac est prêt</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('cartable', -1, this)"><span class="scale-emoji">🙁</span></button>
-                  <button class="scale-btn" data-value="0" onclick="setTaskRating('cartable', 0, this)"><span class="scale-emoji">😐</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('cartable', 1, this)"><span class="scale-emoji">😊</span></button>
-                </div>
-              </div>
-              
-            </div>
-          </div>
+          <!-- ===== CORVÉES / COMPORTEMENT / RITUELS ===== -->
+          <div id="tasks-sections"></div>
           
           <!-- ===== 🎭 SECTION ÉMOTIONS ===== -->
           <div class="category-section emotions-section">
@@ -389,7 +197,7 @@
             <div class="preview-title">Mes étoiles du jour</div>
             <div class="preview-stars">
               <span id="preview-score">0</span>
-              <span class="preview-max">/ 26</span>
+              <span class="preview-max">/ 0</span>
             </div>
             <div class="preview-bar">
               <div id="preview-fill" class="preview-fill"></div>
@@ -496,7 +304,7 @@
       <p id="success-message"></p>
         <div class="success-score">
           <span id="success-points">0</span>
-          <span>/ 26 étoiles</span>
+          <span id="success-max">/ 0 étoiles</span>
         </div>
       <div class="success-stars-display" id="success-stars-display"></div>
       <div id="success-badges" class="success-badges"></div>
