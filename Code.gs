@@ -228,6 +228,7 @@ function getTachesAssigneesPourPersonne_(personne) {
   const headers = data[0].map(value => String(value || '').trim());
   const idIndex = headers.indexOf('ID');
   const personneIndex = headers.indexOf('Personne');
+  const personnesIndex = headers.indexOf('Personnes');
 
   if (idIndex === -1) {
     Logger.log('[getTachesAssigneesPourPersonne] Colonne ID manquante, retour de la liste par défaut.');
@@ -251,12 +252,13 @@ function getTachesAssigneesPourPersonne_(personne) {
       return;
     }
 
-    if (personneIndex === -1) {
+    const targetIndex = personneIndex !== -1 ? personneIndex : personnesIndex;
+    if (targetIndex === -1) {
       addTask(taskId);
       return;
     }
 
-    const rawAssignees = String(row[personneIndex] || '').trim();
+    const rawAssignees = String(row[targetIndex] || '').trim();
     if (!rawAssignees) {
       addTask(taskId);
       return;
