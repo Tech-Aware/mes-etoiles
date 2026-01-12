@@ -7,18 +7,19 @@ let currentUser = null;
 let userData = null;
 
 // Tâches
-const allTasks = [
+const BASE_TASKS = [
   'rangerChambre', 'faireLit', 'rangerJouets', 'aiderTable',
   'ecouter', 'gentilSoeur', 'politesse', 'pasColere',
   'dentsMatin', 'dentsSoir', 'habiller', 'cartable'
 ];
+let activeTasks = [...BASE_TASKS];
 
 const MAX_TASK_SCORE = 1;
 const MIN_TASK_SCORE = -1;
 const MAX_GESTION_SCORE = 1;
 const MIN_GESTION_SCORE = -1;
-const MAX_POINTS = allTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
-const MIN_POINTS = allTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
+let maxPoints = activeTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
+let minPoints = activeTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
 
 const emotionSources = [
   { emoji: '🏠', name: 'Maison' },
@@ -310,11 +311,47 @@ function playSlideTone(context, startFrequency, endFrequency, duration, waveType
 
 function resetForm() {
   taskRatings = {};
-  allTasks.forEach(t => taskRatings[t] = null);
+  BASE_TASKS.forEach(taskId => {
+    taskRatings[taskId] = activeTasks.includes(taskId) ? null : 0;
+  });
   selectedEmotions = [];
   selectedSourcesByEmotion = {};
   gestionScore = null;
   selectedHumeur = null;
+}
+
+function setActiveTasks(taskIds) {
+  if (!Array.isArray(taskIds) || taskIds.length === 0) {
+    console.warn('[setActiveTasks] Liste des tâches vide ou invalide, retour à la liste par défaut.');
+    activeTasks = [...BASE_TASKS];
+  } else {
+    activeTasks = taskIds.filter(taskId => BASE_TASKS.includes(taskId));
+    if (activeTasks.length === 0) {
+      console.warn('[setActiveTasks] Aucune tâche reconnue, retour à la liste par défaut.');
+      activeTasks = [...BASE_TASKS];
+    }
+  }
+
+  maxPoints = activeTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
+  minPoints = activeTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
+  console.info('[setActiveTasks] Tâches actives mises à jour.', { activeTasks, maxPoints, minPoints });
+}
+
+function applyTaskVisibility() {
+  const cards = document.querySelectorAll('.task-card[data-task]');
+  if (!cards.length) {
+    console.warn('[applyTaskVisibility] Aucune carte de tâche trouvée dans le DOM.');
+    return;
+  }
+
+  cards.forEach(card => {
+    const taskId = card.dataset.task;
+    if (activeTasks.includes(taskId)) {
+      card.style.display = '';
+    } else {
+      card.style.display = 'none';
+    }
+  });
 }
 
 // ==================================================
@@ -369,6 +406,8 @@ function onUserLoaded(data) {
     resetForm();
     resetFormUI();
   }
+
+  loadTaskAssignments(currentUser);
   
   loadStatsPage();
   loadFamilyPage();
@@ -376,6 +415,35 @@ function onUserLoaded(data) {
   loadBadgesPage();
   
   hideToast();
+}
+
+function loadTaskAssignments(personne) {
+  if (!personne) {
+    console.warn('[loadTaskAssignments] Personne manquante, tâches par défaut utilisées.');
+    setActiveTasks(BASE_TASKS);
+    applyTaskVisibility();
+    resetForm();
+    resetFormUI();
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(response => {
+      const taskIds = response?.taskIds ?? [];
+      setActiveTasks(taskIds);
+      applyTaskVisibility();
+      resetForm();
+      resetFormUI();
+      console.info('[loadTaskAssignments] Tâches chargées pour la personne.', { personne, taskIds });
+    })
+    .withFailureHandler(error => {
+      console.error('[loadTaskAssignments] Échec du chargement des tâches assignées.', error);
+      setActiveTasks(BASE_TASKS);
+      applyTaskVisibility();
+      resetForm();
+      resetFormUI();
+    })
+    .getTachesPourPersonne(personne);
 }
 
 function resetFormUI() {
@@ -560,7 +628,7 @@ function updatePreview() {
   let total = 0;
   let filledTasks = 0;
   
-  allTasks.forEach(t => {
+  activeTasks.forEach(t => {
     if (taskRatings[t] !== null) {
       total += taskRatings[t];
       filledTasks++;
@@ -572,16 +640,16 @@ function updatePreview() {
   }
   
   document.getElementById('preview-score').textContent = total;
-  const normalized = (total - MIN_POINTS) / (MAX_POINTS - MIN_POINTS);
+  const normalized = (total - minPoints) / (maxPoints - minPoints);
   const fillPercent = Math.max(0, Math.min(100, Math.round(normalized * 100)));
   document.getElementById('preview-fill').style.width = fillPercent + '%';
   
-  const rawPercent = Math.round((total / MAX_POINTS) * 100);
+  const rawPercent = Math.round((total / maxPoints) * 100);
   const percent = Math.max(0, Math.min(100, rawPercent));
   let message = '';
   
-  if (filledTasks < allTasks.length) {
-    message = `Encore ${allTasks.length - filledTasks} cases à remplir !`;
+  if (filledTasks < activeTasks.length) {
+    message = `Encore ${activeTasks.length - filledTasks} cases à remplir !`;
   } else if (gestionScore === null) {
     message = 'N\'oublie pas les émotions !';
   } else if (percent >= 90) {
@@ -598,7 +666,7 @@ function updatePreview() {
 }
 
 function checkCanSubmit() {
-  const allTasksFilled = allTasks.every(t => taskRatings[t] !== null);
+  const allTasksFilled = activeTasks.every(t => taskRatings[t] !== null);
   const emotionsOk = selectedEmotions.length >= 1;
   const sourceOk = selectedEmotions.every(e => selectedSourcesByEmotion[e.emoji]);
   const gestionOk = gestionScore !== null;
@@ -704,7 +772,7 @@ function loadStatsPage() {
   if (!userData) return;
   
   document.getElementById('stats-week-points').textContent = userData.weekPoints;
-  const maxWeek = MAX_POINTS * 7;
+  const maxWeek = maxPoints * 7;
   const weekFill = Math.max(0, Math.min(100, Math.round((userData.weekPoints / maxWeek) * 100)));
   document.getElementById('stats-week-fill').style.width = weekFill + '%';
   document.getElementById('stats-streak').textContent = userData.streak;
@@ -715,8 +783,8 @@ function loadStatsPage() {
   daysContainer.innerHTML = userData.dailyScores.map((score, i) => {
     let classe = '';
     if (score !== null) {
-      if (score >= Math.round(MAX_POINTS * 0.85)) classe = 'perfect';
-      else if (score >= Math.round(MAX_POINTS * 0.6)) classe = 'good';
+      if (score >= Math.round(maxPoints * 0.85)) classe = 'perfect';
+      else if (score >= Math.round(maxPoints * 0.6)) classe = 'good';
       else classe = 'low';
     }
     return `
