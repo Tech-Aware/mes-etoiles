@@ -467,25 +467,23 @@ function getTachesAssigneesPourPersonne_(personne) {
         if (index >= 0 && index < TASK_IDS.length) {
           return { taskKey: TASK_IDS[index], source: 'id_numerique' };
         }
+        return { taskKey: '', source: 'id_hors_limite' };
       }
+      return { taskKey: '', source: 'id_invalide' };
     }
 
-    if (ordreIndex !== -1) {
-      const ordreValue = Number(row[ordreIndex]);
-      const ordreIndexBased = ordreValue - 1;
-      if (!Number.isNaN(ordreValue) && ordreIndexBased >= 0 && ordreIndexBased < TASK_IDS.length) {
-        return { taskKey: TASK_IDS[ordreIndexBased], source: 'ordre' };
-      }
-    }
-
-    return { taskKey: '', source: 'inconnu' };
+    return { taskKey: '', source: 'id_absent' };
   };
 
   data.slice(1).forEach((row, rowIndex) => {
     const resolved = resolveTaskKey(row);
     if (!resolved.taskKey) {
       const rawId = String(row[idIndex] || '').trim();
-      Logger.log(`[getTachesAssigneesPourPersonne] ID de tâche inconnu ignoré : ${rawId}`);
+      if (rawId) {
+        Logger.log(`[getTachesAssigneesPourPersonne] ID de tâche invalide ignoré : ${rawId} (source=${resolved.source}).`);
+      } else {
+        Logger.log('[getTachesAssigneesPourPersonne] Tâche ignorée : ID manquant dans la feuille Tâches.');
+      }
       return;
     }
 
