@@ -213,9 +213,13 @@ function getMaxPointsParJour_(personne) {
 }
 
 function getPointsDisponibles_(personneKey, evalData, claimsData) {
+  const evalMeta = getEvaluationsFeuille_();
+  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 27, 'TotalJour');
+  const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
+
   const totalGagnes = evalData
-    .filter(row => String(row[3] || '').trim() === personneKey)
-    .reduce((acc, row) => acc + Number(row[27] || 0), 0);
+    .filter(row => String(row[personneIndex] || '').trim() === personneKey)
+    .reduce((acc, row) => acc + Number(row[totalJourIndex] || 0), 0);
 
   const totalDepenses = claimsData
     .filter(row => String(row[2] || '').trim() === personneKey)
@@ -228,6 +232,43 @@ function getPointsDisponibles_(personneKey, evalData, claimsData) {
   const totalPoints = Math.max(0, totalGagnes - totalDepenses);
   Logger.log(`[getPointsDisponibles] ${personneKey} : gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
   return { totalPoints, totalGagnes, totalDepenses };
+}
+
+function getEvaluationsFeuille_() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName('Évaluations');
+  if (!sheet) {
+    Logger.log('[getEvaluationsFeuille] Feuille "Évaluations" introuvable.');
+    throw new Error('Feuille "Évaluations" introuvable.');
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) {
+    Logger.log('[getEvaluationsFeuille] Feuille "Évaluations" vide.');
+    return { sheet, headers: [], rows: [], indexes: {} };
+  }
+
+  const headers = data[0].map(value => String(value || '').trim());
+  const indexes = {
+    id: headers.indexOf('ID'),
+    date: headers.indexOf('Date'),
+    heure: headers.indexOf('Heure'),
+    personne: headers.indexOf('Personne'),
+    emotion1: headers.indexOf('Emotion1'),
+    gestionEmotion: headers.indexOf('GestionEmotion'),
+    totalJour: headers.indexOf('TotalJour')
+  };
+
+  return { sheet, headers, rows: data.slice(1), indexes };
+}
+
+function getEvaluationColumnIndex_(indexes, key, fallback, label) {
+  const idx = indexes && typeof indexes[key] === 'number' ? indexes[key] : -1;
+  if (idx === -1) {
+    Logger.log(`[getEvaluationColumnIndex] Colonne "${label}" introuvable, fallback sur index=${fallback}.`);
+    return fallback;
+  }
+  return idx;
 }
 
 function mettreAJourCoutsRecompenses() {
@@ -692,17 +733,18 @@ function getTachesAssigneesPourPersonne_(personne) {
 // ==================================================
 function hasEvaluatedToday(personne) {
   try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const sheet = ss.getSheetByName('Évaluations');
-    const data = sheet.getDataRange().getValues().slice(1);
+    const evalMeta = getEvaluationsFeuille_();
+    const data = evalMeta.rows;
+    const dateIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'date', 1, 'Date');
+    const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
     
     const todayKey = getParisDateKey(new Date());
     const personneKey = String(personne || '').trim();
     Logger.log(`[hasEvaluatedToday] Vérification Paris pour ${personneKey} (date=${todayKey}).`);
     
     return data.some(row => {
-      const rowKey = getParisDateKeyFromValue(row[1], 'Évaluations.Date');
-      const rowPersonne = String(row[3] || '').trim();
+      const rowKey = getParisDateKeyFromValue(row[dateIndex], 'Évaluations.Date');
+      const rowPersonne = String(row[personneIndex] || '').trim();
       if (!rowKey) {
         return false;
       }
@@ -956,8 +998,12 @@ function getPersonneData(personne) {
     const personneInfo = personnesData.find(r => String(r[0] || '').trim() === personneKey);
     
     // Évaluations
-    const evalSheet = ss.getSheetByName('Évaluations');
-    const evalData = evalSheet.getDataRange().getValues().slice(1);
+    const evalMeta = getEvaluationsFeuille_();
+    const evalData = evalMeta.rows;
+    const evalIndexes = evalMeta.indexes;
+    const dateIndex = getEvaluationColumnIndex_(evalIndexes, 'date', 1, 'Date');
+    const personneIndex = getEvaluationColumnIndex_(evalIndexes, 'personne', 3, 'Personne');
+    const totalJourIndex = getEvaluationColumnIndex_(evalIndexes, 'totalJour', 27, 'TotalJour');
 
     // Récompenses demandées (dépenses)
     const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
@@ -982,16 +1028,16 @@ function getPersonneData(personne) {
     let weekDays = 0;
     let dailyScores = [null, null, null, null, null, null, null];
     
-    const personneEvals = evalData.filter(r => String(r[3] || '').trim() === personneKey);
+    const personneEvals = evalData.filter(r => String(r[personneIndex] || '').trim() === personneKey);
     
     personneEvals.forEach(row => {
-      const parsedDate = parseSheetDate(row[1], 'Évaluations.Date');
+      const parsedDate = parseSheetDate(row[dateIndex], 'Évaluations.Date');
       if (!parsedDate) {
         return;
       }
       const date = getParisMidnight(parsedDate);
       if (date >= weekStart && date <= weekEnd) {
-        const total = row[27]; // Colonne TotalJour
+        const total = Number(row[totalJourIndex] || 0);
         weekPoints += total;
         weekDays++;
         const dayIndex = date.getDay() === 0 ? 6 : date.getDay() - 1;
@@ -1002,8 +1048,8 @@ function getPersonneData(personne) {
     // Streak (Paris)
     let streak = 0;
     const sortedEvals = personneEvals.sort((a, b) => {
-      const dateA = parseSheetDate(a[1], 'Évaluations.Date');
-      const dateB = parseSheetDate(b[1], 'Évaluations.Date');
+      const dateA = parseSheetDate(a[dateIndex], 'Évaluations.Date');
+      const dateB = parseSheetDate(b[dateIndex], 'Évaluations.Date');
       const timeA = dateA ? dateA.getTime() : 0;
       const timeB = dateB ? dateB.getTime() : 0;
       return timeB - timeA;
@@ -1013,7 +1059,7 @@ function getPersonneData(personne) {
       let checkDate = getParisMidnight(new Date());
       
       for (const eval of sortedEvals) {
-        const parsedDate = parseSheetDate(eval[1], 'Évaluations.Date');
+        const parsedDate = parseSheetDate(eval[dateIndex], 'Évaluations.Date');
         if (!parsedDate) {
           continue;
         }
@@ -1178,8 +1224,12 @@ function claimReward(personne, rewardId) {
 function checkBadges(personne) {
   const ss = SpreadsheetApp.openById(SS_ID);
   const data = getPersonneData(personne);
-  const evalSheet = ss.getSheetByName('Évaluations');
-  const evals = evalSheet.getDataRange().getValues().slice(1).filter(r => r[3] === personne);
+  const evalMeta = getEvaluationsFeuille_();
+  const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
+  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 27, 'TotalJour');
+  const gestionEmotionIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'gestionEmotion', 22, 'GestionEmotion');
+  const emotion1Index = getEvaluationColumnIndex_(evalMeta.indexes, 'emotion1', 16, 'Emotion1');
+  const evals = evalMeta.rows.filter(r => r[personneIndex] === personne);
   
   const newBadges = [];
   
@@ -1198,7 +1248,7 @@ function checkBadges(personne) {
   }
   
   // B06 - Journée parfaite (26/26)
-  const hasPerfect = evals.some(r => r[27] >= 26);
+  const hasPerfect = evals.some(r => Number(r[totalJourIndex] || 0) >= 26);
   if (hasPerfect && !data.badges.some(b => b.id === 'B06')) {
     if (awardBadge(personne, 'B06')) {
       newBadges.push({ id: 'B06', nom: 'Journée parfaite', emoji: '🌟' });
@@ -1206,7 +1256,7 @@ function checkBadges(personne) {
   }
   
   // B08 - Zen master (5x gestion émotions = 2)
-  const goodGestion = evals.filter(r => r[22] === 2).length;
+  const goodGestion = evals.filter(r => Number(r[gestionEmotionIndex] || 0) === 2).length;
   if (goodGestion >= 5 && !data.badges.some(b => b.id === 'B08')) {
     if (awardBadge(personne, 'B08')) {
       newBadges.push({ id: 'B08', nom: 'Zen master', emoji: '🧘' });
@@ -1214,7 +1264,7 @@ function checkBadges(personne) {
   }
   
   // B11 - Explorateur émotions (7 jours avec émotions)
-  const daysWithEmotions = evals.filter(r => r[16] && r[16] !== '').length;
+  const daysWithEmotions = evals.filter(r => r[emotion1Index] && r[emotion1Index] !== '').length;
   if (daysWithEmotions >= 7 && !data.badges.some(b => b.id === 'B11')) {
     if (awardBadge(personne, 'B11')) {
       newBadges.push({ id: 'B11', nom: 'Explorateur émotions', emoji: '🎭' });
