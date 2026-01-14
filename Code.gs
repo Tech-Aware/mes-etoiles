@@ -39,7 +39,6 @@ const EVALUATION_REQUIRED_HEADERS = [
   'TotalRituels',
   'TotalEmotions',
   'TotalJour',
-  'Etoiles',
   'Humeur',
   'Commentaire',
   'Taches_Dynamiques'
@@ -286,7 +285,6 @@ function getEvaluationsFeuille_() {
     emotion1: trouverIndexEntete_(headers, ['Emotion1', 'Emotion 1'], 'Emotion1', headers.indexOf('Emotion1')),
     gestionEmotion: trouverIndexEntete_(headers, ['GestionEmotion', 'Gestion Emotion', 'Gestion Émotion'], 'GestionEmotion', headers.indexOf('GestionEmotion')),
     totalJour: trouverIndexEntete_(headers, ['TotalJour', 'Total Jour'], 'TotalJour', headers.indexOf('TotalJour')),
-    etoiles: trouverIndexEntete_(headers, ['Etoiles', 'Étoiles', 'Etoile', 'Étoile'], 'Etoiles', headers.indexOf('Etoiles')),
     tachesDynamiques: trouverIndexEntete_(headers, ['Taches_Dynamiques', 'Taches Dynamiques', 'Tâches Dynamiques'], 'Taches_Dynamiques', headers.indexOf('Taches_Dynamiques'))
   };
 
@@ -334,26 +332,11 @@ function getEvaluationColumnIndex_(indexes, key, fallback, label) {
 function getPointsDisponibles_(personneKey, evalMeta, claimsMeta) {
   const evalRows = evalMeta.rows || [];
   const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 15, 'TotalJour');
-  const etoilesIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'etoiles', -1, 'Etoiles');
   const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
-
-  const useStars = typeof etoilesIndex === 'number' && etoilesIndex >= 0;
-  const pointsLabel = useStars ? 'Etoiles (fallback TotalJour)' : 'TotalJour';
-
-  const getPointsValue = (row) => {
-    if (useStars) {
-      const etoilesValue = Number(row[etoilesIndex]);
-      if (!Number.isNaN(etoilesValue)) {
-        return etoilesValue;
-      }
-    }
-    const fallbackValue = Number(row[totalJourIndex] || 0);
-    return Number.isNaN(fallbackValue) ? 0 : fallbackValue;
-  };
 
   const totalGagnes = evalRows
     .filter(row => String(row[personneIndex] || '').trim() === personneKey)
-    .reduce((acc, row) => acc + getPointsValue(row), 0);
+    .reduce((acc, row) => acc + Number(row[totalJourIndex] || 0), 0);
 
   const claimsRows = claimsMeta.rows || [];
   const claimsIndexes = claimsMeta.indexes || {};
@@ -370,7 +353,7 @@ function getPointsDisponibles_(personneKey, evalMeta, claimsMeta) {
     .reduce((acc, row) => acc + Number(row[coutIndex] || 0), 0);
 
   const totalPoints = Math.max(0, totalGagnes - totalDepenses);
-  Logger.log(`[getPointsDisponibles] ${personneKey} : source=${pointsLabel}, gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
+  Logger.log(`[getPointsDisponibles] ${personneKey} : source=TotalJour, gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
   return { totalPoints, totalGagnes, totalDepenses };
 }
 
@@ -1295,7 +1278,6 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     setValue('Humeur', humeur);
     setValue('Commentaire', commentaireSafe);
     setValue('Taches_Dynamiques', dynamicPayload, ['Tâches Dynamiques', 'Taches Dynamiques']);
-    setValue('Etoiles', stars, ['Étoiles', 'Etoile', 'Étoile']);
 
     const appendedRowIndex = sheet.getLastRow() + 1;
     sheet.getRange(appendedRowIndex, 1, 1, preparedHeaders.length).setValues([rowValues]);
@@ -1377,7 +1359,6 @@ function getPersonneData(personne) {
     const dateIndex = getEvaluationColumnIndex_(evalIndexes, 'date', 1, 'Date');
     const personneIndex = getEvaluationColumnIndex_(evalIndexes, 'personne', 3, 'Personne');
     const totalJourIndex = getEvaluationColumnIndex_(evalIndexes, 'totalJour', 15, 'TotalJour');
-    const etoilesIndex = getEvaluationColumnIndex_(evalIndexes, 'etoiles', -1, 'Etoiles');
 
     // Récompenses demandées (dépenses)
     const claimsMeta = getRecompensesDemandeesMeta_();
@@ -1401,18 +1382,6 @@ function getPersonneData(personne) {
     
     const personneEvals = evalData.filter(r => String(r[personneIndex] || '').trim() === personneKey);
 
-    const useStars = typeof etoilesIndex === 'number' && etoilesIndex >= 0;
-    const getPointsValue = (row) => {
-      if (useStars) {
-        const etoilesValue = Number(row[etoilesIndex]);
-        if (!Number.isNaN(etoilesValue)) {
-          return etoilesValue;
-        }
-      }
-      const fallbackValue = Number(row[totalJourIndex] || 0);
-      return Number.isNaN(fallbackValue) ? 0 : fallbackValue;
-    };
-    
     personneEvals.forEach(row => {
       const parsedDate = parseSheetDate(row[dateIndex], 'Évaluations.Date');
       if (!parsedDate) {
@@ -1420,7 +1389,7 @@ function getPersonneData(personne) {
       }
       const date = getParisMidnight(parsedDate);
       if (date >= weekStart && date <= weekEnd) {
-        const total = getPointsValue(row);
+        const total = Number(row[totalJourIndex] || 0);
         weekPoints += total;
         weekDays++;
         const dayIndex = date.getDay() === 0 ? 6 : date.getDay() - 1;
