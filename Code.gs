@@ -649,6 +649,42 @@ function estValeurNumerique_(valeur) {
   return !Number.isNaN(numeric);
 }
 
+function estTexteNonNumerique_(valeur) {
+  if (valeur === '' || valeur === null || typeof valeur === 'undefined') {
+    return false;
+  }
+  if (estValeurNumerique_(valeur)) {
+    return false;
+  }
+  const texte = String(valeur || '').trim();
+  return texte.length > 1;
+}
+
+function trouverJsonTachesDynamiques_(row) {
+  if (!row || row.length === 0) {
+    return { parsed: null, raw: null, index: -1 };
+  }
+
+  for (let i = 0; i < row.length; i += 1) {
+    const cell = row[i];
+    if (!cell || typeof cell !== 'string') {
+      continue;
+    }
+    const trimmed = cell.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      return { parsed, raw: trimmed, index: i };
+    } catch (error) {
+      Logger.log(`[trouverJsonTachesDynamiques] JSON invalide à l'index ${i} : ${error}`);
+    }
+  }
+
+  return { parsed: null, raw: null, index: -1 };
+}
+
 function rangerFeuilleEvaluationsSelonEntetes() {
   try {
     const evalMeta = getEvaluationsFeuille_();
@@ -702,10 +738,15 @@ function rangerFeuilleEvaluationsSelonEntetes() {
       .map((header, index) => (header.includes(' - ') ? index : -1))
       .filter(index => index >= 0);
 
+    const commentaireIndex = typeof targetIndexByNormalized[normaliserCleEntete_('Commentaire')] === 'number'
+      ? targetIndexByNormalized[normaliserCleEntete_('Commentaire')]
+      : -1;
+
     const rebuiltRows = rows.map((row, rowOffset) => {
       const newRow = new Array(targetHeaders.length).fill('');
-      const rawDynamic = tachesDynamiquesIndex >= 0 ? row[tachesDynamiquesIndex] : '';
+      let rawDynamic = tachesDynamiquesIndex >= 0 ? row[tachesDynamiquesIndex] : '';
       let parsedDynamic = null;
+      let dynamicSourceIndex = tachesDynamiquesIndex;
 
       if (rawDynamic) {
         try {
@@ -716,6 +757,16 @@ function rangerFeuilleEvaluationsSelonEntetes() {
         }
       }
 
+      if (!parsedDynamic) {
+        const fallbackDynamic = trouverJsonTachesDynamiques_(row);
+        if (fallbackDynamic.parsed) {
+          parsedDynamic = fallbackDynamic.parsed;
+          rawDynamic = fallbackDynamic.raw;
+          dynamicSourceIndex = fallbackDynamic.index;
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] JSON Taches_Dynamiques détecté ligne ${rowOffset + 2} en colonne ${dynamicSourceIndex + 1}.`);
+        }
+      }
+
       targetHeaders.forEach((header, targetIndex) => {
         const normalized = normaliserCleEntete_(header);
         const sourceIndex = typeof currentIndexByNormalized[normalized] === 'number'
@@ -723,6 +774,9 @@ function rangerFeuilleEvaluationsSelonEntetes() {
           : -1;
 
         if (sourceIndex >= 0) {
+          if (dynamicSourceIndex >= 0 && sourceIndex === dynamicSourceIndex && tachesDynamiquesTargetIndex !== targetIndex) {
+            return;
+          }
           newRow[targetIndex] = row[sourceIndex];
           return;
         }
@@ -736,26 +790,46 @@ function rangerFeuilleEvaluationsSelonEntetes() {
         }
       });
 
+      if (parsedDynamic && tachesDynamiquesTargetIndex >= 0) {
+        newRow[tachesDynamiquesTargetIndex] = rawDynamic || JSON.stringify(parsedDynamic);
+      }
+
       if (tachesDynamiquesTargetIndex >= 0 && !parsedDynamic) {
         const tachesDynamiquesValue = newRow[tachesDynamiquesTargetIndex];
-        if (!tachesDynamiquesValue) {
-          const firstTaskIndex = taskTargetIndexes.length > 0 ? taskTargetIndexes[0] : -1;
-          const firstNumericTaskIndex = taskTargetIndexes.find(index => estValeurNumerique_(newRow[index]));
-          if (firstTaskIndex >= 0 && typeof firstNumericTaskIndex === 'number' && firstNumericTaskIndex > firstTaskIndex) {
-            const offset = firstNumericTaskIndex - firstTaskIndex;
-            Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Décalage détecté ligne ${rowOffset + 2} : décalage=${offset}, réalignement des tâches.`);
-            for (let i = firstNumericTaskIndex; i < newRow.length; i += 1) {
-              if (!taskTargetIndexes.includes(i)) {
-                continue;
-              }
-              const target = i - offset;
-              if (!taskTargetIndexes.includes(target)) {
-                continue;
-              }
-              newRow[target] = newRow[i];
-              newRow[i] = '';
-            }
+        const firstTaskIndex = taskTargetIndexes.length > 0 ? taskTargetIndexes[0] : -1;
+        const firstNumericTaskIndex = taskTargetIndexes.find(index => estValeurNumerique_(newRow[index]));
+
+        if (estValeurNumerique_(tachesDynamiquesValue) && firstTaskIndex >= 0) {
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Décalage détecté ligne ${rowOffset + 2} : données de tâche trouvées en Taches_Dynamiques, réalignement vers les tâches.`);
+          for (let i = taskTargetIndexes.length - 1; i >= 0; i -= 1) {
+            const targetIndex = taskTargetIndexes[i];
+            const sourceIndex = i === 0 ? tachesDynamiquesTargetIndex : taskTargetIndexes[i - 1];
+            newRow[targetIndex] = sourceIndex >= 0 ? newRow[sourceIndex] : '';
           }
+          newRow[tachesDynamiquesTargetIndex] = '';
+        } else if (!tachesDynamiquesValue && firstTaskIndex >= 0 && typeof firstNumericTaskIndex === 'number' && firstNumericTaskIndex > firstTaskIndex) {
+          const offset = firstNumericTaskIndex - firstTaskIndex;
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Décalage détecté ligne ${rowOffset + 2} : décalage=${offset}, réalignement des tâches.`);
+          for (let i = firstNumericTaskIndex; i < newRow.length; i += 1) {
+            if (!taskTargetIndexes.includes(i)) {
+              continue;
+            }
+            const target = i - offset;
+            if (!taskTargetIndexes.includes(target)) {
+              continue;
+            }
+            newRow[target] = newRow[i];
+            newRow[i] = '';
+          }
+        }
+      }
+
+      if (commentaireIndex >= 0 && !estTexteNonNumerique_(newRow[commentaireIndex])) {
+        const commentaireSourceIndex = taskTargetIndexes.find(index => estTexteNonNumerique_(newRow[index]));
+        if (typeof commentaireSourceIndex === 'number') {
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Commentaire repositionné ligne ${rowOffset + 2} depuis la colonne ${commentaireSourceIndex + 1}.`);
+          newRow[commentaireIndex] = newRow[commentaireSourceIndex];
+          newRow[commentaireSourceIndex] = '';
         }
       }
 
