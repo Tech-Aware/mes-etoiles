@@ -22,6 +22,27 @@ const BASE_TASK_IDS = [
 const MAX_TASK_SCORE = 3;
 const MAX_GESTION_SCORE = 1;
 const ALLOWED_TASK_SCORES = [-1, 0, 1, 2, 3];
+const EVALUATION_REQUIRED_HEADERS = [
+  'ID',
+  'Date',
+  'Heure',
+  'Personne',
+  'Emotion1',
+  'Emotion2',
+  'Emotion3',
+  'Source1',
+  'Source2',
+  'Source3',
+  'GestionEmotion',
+  'TotalCorvees',
+  'TotalComportement',
+  'TotalRituels',
+  'TotalEmotions',
+  'TotalJour',
+  'Humeur',
+  'Commentaire',
+  'Taches_Dynamiques'
+];
 
 const TASK_CATEGORY_KEYS = {
   corvees: 'corvees',
@@ -217,7 +238,7 @@ function getMaxPointsParJour_(personne) {
 
 function getPointsDisponibles_(personneKey, evalData, claimsData) {
   const evalMeta = getEvaluationsFeuille_();
-  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 27, 'TotalJour');
+  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 15, 'TotalJour');
   const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
 
   const totalGagnes = evalData
@@ -284,6 +305,7 @@ function buildEvaluationTaskHeader_(task) {
 }
 
 function synchroniserColonnesTachesEvaluations_() {
+  nettoyerColonnesTachesStatiqueEvaluations_();
   const evalMeta = getEvaluationsFeuille_();
   const sheet = evalMeta.sheet;
   const headers = evalMeta.headers.slice();
@@ -314,6 +336,86 @@ function synchroniserColonnesTachesEvaluations_() {
 
   Logger.log(`[synchroniserColonnesTachesEvaluations] Synchronisation terminée, ${addedCount} colonne(s) ajoutée(s).`);
   return { headers, headerIndex: buildHeaderIndexMap_(headers) };
+}
+
+function nettoyerColonnesTachesStatiqueEvaluations_() {
+  try {
+    const evalMeta = getEvaluationsFeuille_();
+    const sheet = evalMeta.sheet;
+    const headers = evalMeta.headers;
+    if (headers.length === 0) {
+      Logger.log('[nettoyerColonnesTachesStatiqueEvaluations] Aucun en-tête détecté, rien à supprimer.');
+      return { removed: 0 };
+    }
+
+    const definitions = getTachesDefinitions_();
+    const legacyHeaders = new Set(
+      BASE_TASK_IDS.concat(definitions.map(task => task.nom || '').filter(Boolean))
+        .map(value => normaliserTexte_(value))
+        .filter(Boolean)
+    );
+
+    const columnsToDelete = [];
+    headers.forEach((header, index) => {
+      const normalized = normaliserTexte_(header);
+      if (!normalized) {
+        return;
+      }
+      if (header.includes(' - ')) {
+        return;
+      }
+      if (legacyHeaders.has(normalized)) {
+        columnsToDelete.push(index + 1);
+      }
+    });
+
+    if (columnsToDelete.length === 0) {
+      Logger.log('[nettoyerColonnesTachesStatiqueEvaluations] Aucune ancienne colonne de tâche détectée.');
+      return { removed: 0 };
+    }
+
+    columnsToDelete
+      .sort((a, b) => b - a)
+      .forEach(columnIndex => {
+        Logger.log(`[nettoyerColonnesTachesStatiqueEvaluations] Suppression colonne ${columnIndex} (${headers[columnIndex - 1]}).`);
+        sheet.deleteColumn(columnIndex);
+      });
+
+    Logger.log(`[nettoyerColonnesTachesStatiqueEvaluations] Colonnes supprimées: ${columnsToDelete.length}.`);
+    return { removed: columnsToDelete.length };
+  } catch (error) {
+    Logger.log(`[nettoyerColonnesTachesStatiqueEvaluations] Erreur : ${error}`);
+    throw new Error('Impossible de supprimer les anciennes colonnes de tâches.');
+  }
+}
+
+function assurerColonnesEvaluations_(sheet, requiredHeaders) {
+  try {
+    const lastColumn = Math.max(sheet.getLastColumn(), 0);
+    const existingHeaders = lastColumn > 0
+      ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(value => String(value || '').trim())
+      : [];
+
+    if (existingHeaders.length === 0 && requiredHeaders.length > 0) {
+      sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
+      Logger.log('[assurerColonnesEvaluations] En-têtes initialisés.');
+      return requiredHeaders.slice();
+    }
+
+    let updatedHeaders = existingHeaders.slice();
+    requiredHeaders.forEach(header => {
+      if (!updatedHeaders.includes(header)) {
+        updatedHeaders.push(header);
+        sheet.getRange(1, updatedHeaders.length).setValue(header);
+        Logger.log(`[assurerColonnesEvaluations] Colonne "${header}" ajoutée.`);
+      }
+    });
+
+    return updatedHeaders;
+  } catch (error) {
+    Logger.log(`[assurerColonnesEvaluations] Erreur : ${error}`);
+    throw new Error('Impossible d’assurer les colonnes de la feuille Évaluations.');
+  }
 }
 
 function buildHeaderIndexMap_(headers) {
@@ -947,6 +1049,10 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
     const sheet = ss.getSheetByName('Évaluations');
+    if (!sheet) {
+      Logger.log('[submitEvaluation] Feuille "Évaluations" introuvable, envoi annulé.');
+      throw new Error('Feuille "Évaluations" introuvable.');
+    }
     
     if (hasEvaluatedToday(personne)) {
       Logger.log(`[submitEvaluation] Évaluation déjà faite aujourd'hui (Paris) pour ${personne}.`);
@@ -1002,21 +1108,6 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       return value;
     };
 
-    const tachesNormalisees = {
-      rangerChambre: safeTaskValue('rangerChambre'),
-      faireLit: safeTaskValue('faireLit'),
-      rangerJouets: safeTaskValue('rangerJouets'),
-      aiderTable: safeTaskValue('aiderTable'),
-      ecouter: safeTaskValue('ecouter'),
-      gentilSoeur: safeTaskValue('gentilSoeur'),
-      politesse: safeTaskValue('politesse'),
-      pasColere: safeTaskValue('pasColere'),
-      dentsMatin: safeTaskValue('dentsMatin'),
-      dentsSoir: safeTaskValue('dentsSoir'),
-      habiller: safeTaskValue('habiller'),
-      cartable: safeTaskValue('cartable')
-    };
-
     const totalsByCategory = {
       corvees: 0,
       comportement: 0,
@@ -1048,61 +1139,46 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     Logger.log(`[submitEvaluation] Totaux calculés pour ${personne} : corvées=${totalCorvees}, comportement=${totalComportement}, rituels=${totalRituels}, émotions=${totalEmotions}, totalJour=${totalJour}.`);
     
     Logger.log(`[submitEvaluation] Ajout évaluation ${newId} pour ${personne} (Paris=${getParisDateKey(now)}).`);
-    
-    const syncResult = synchroniserColonnesTachesEvaluations_();
-    const headers = syncResult.headers;
-    const dynamicHeader = 'Taches_Dynamiques';
-    let dynamicColumnIndex = headers.indexOf(dynamicHeader);
-    if (dynamicColumnIndex === -1) {
-      dynamicColumnIndex = headers.length;
-      sheet.getRange(1, dynamicColumnIndex + 1).setValue(dynamicHeader);
-      Logger.log(`[submitEvaluation] Colonne ${dynamicHeader} ajoutée en ${dynamicColumnIndex + 1}.`);
-    } else if (dynamicColumnIndex !== headers.length - 1) {
-      Logger.log(`[submitEvaluation] Colonne ${dynamicHeader} non en dernière position (index=${dynamicColumnIndex + 1}). Valeur ajoutée en fin de ligne.`);
-    }
 
+    assurerColonnesEvaluations_(sheet, EVALUATION_REQUIRED_HEADERS);
+    const syncResult = synchroniserColonnesTachesEvaluations_();
+    const preparedHeaders = syncResult.headers;
+    const headerIndex = syncResult.headerIndex;
     const dynamicPayload = Object.keys(dynamicTasks).length > 0 ? JSON.stringify(dynamicTasks) : '';
 
-    // Ajouter la ligne
-    sheet.appendRow([
-      newId,
-      now,
-      Utilities.formatDate(now, PARIS_TIMEZONE, 'HH:mm'),
-      personne,
-      // Tâches
-      tachesNormalisees.rangerChambre,
-      tachesNormalisees.faireLit,
-      tachesNormalisees.rangerJouets,
-      tachesNormalisees.aiderTable,
-      tachesNormalisees.ecouter,
-      tachesNormalisees.gentilSoeur,
-      tachesNormalisees.politesse,
-      tachesNormalisees.pasColere,
-      tachesNormalisees.dentsMatin,
-      tachesNormalisees.dentsSoir,
-      tachesNormalisees.habiller,
-      tachesNormalisees.cartable,
-      // Émotions
-      emotions.emotion1,
-      emotions.emotion2 || '',
-      emotions.emotion3 || '',
-      emotions.source1 || '',
-      emotions.source2 || '',
-      emotions.source3 || '',
-      emotions.gestion,
-      // Totaux
-      totalCorvees,
-      totalComportement,
-      totalRituels,
-      totalEmotions,
-      totalJour,
-      // Meta
-      humeur,
-      commentaireSafe,
-      dynamicPayload
-    ]);
+    const rowValues = new Array(preparedHeaders.length).fill('');
+    const setValue = (header, value) => {
+      const idx = headerIndex[header];
+      if (typeof idx !== 'number') {
+        Logger.log(`[submitEvaluation] Colonne "${header}" introuvable, valeur ignorée.`);
+        return;
+      }
+      rowValues[idx] = value;
+    };
 
-    const appendedRowIndex = sheet.getLastRow();
+    setValue('ID', newId);
+    setValue('Date', now);
+    setValue('Heure', Utilities.formatDate(now, PARIS_TIMEZONE, 'HH:mm'));
+    setValue('Personne', personne);
+    setValue('Emotion1', emotions.emotion1);
+    setValue('Emotion2', emotions.emotion2 || '');
+    setValue('Emotion3', emotions.emotion3 || '');
+    setValue('Source1', emotions.source1 || '');
+    setValue('Source2', emotions.source2 || '');
+    setValue('Source3', emotions.source3 || '');
+    setValue('GestionEmotion', emotions.gestion);
+    setValue('TotalCorvees', totalCorvees);
+    setValue('TotalComportement', totalComportement);
+    setValue('TotalRituels', totalRituels);
+    setValue('TotalEmotions', totalEmotions);
+    setValue('TotalJour', totalJour);
+    setValue('Humeur', humeur);
+    setValue('Commentaire', commentaireSafe);
+    setValue('Taches_Dynamiques', dynamicPayload);
+
+    const appendedRowIndex = sheet.getLastRow() + 1;
+    sheet.getRange(appendedRowIndex, 1, 1, preparedHeaders.length).setValues([rowValues]);
+    Logger.log(`[submitEvaluation] Ligne ${appendedRowIndex} ajoutée avec colonnes dynamiques.`);
     appliquerValeursTachesDynamiques_(
       sheet,
       appendedRowIndex,
@@ -1202,7 +1278,7 @@ function getPersonneData(personne) {
     const evalIndexes = evalMeta.indexes;
     const dateIndex = getEvaluationColumnIndex_(evalIndexes, 'date', 1, 'Date');
     const personneIndex = getEvaluationColumnIndex_(evalIndexes, 'personne', 3, 'Personne');
-    const totalJourIndex = getEvaluationColumnIndex_(evalIndexes, 'totalJour', 27, 'TotalJour');
+    const totalJourIndex = getEvaluationColumnIndex_(evalIndexes, 'totalJour', 15, 'TotalJour');
 
     // Récompenses demandées (dépenses)
     const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
@@ -1425,9 +1501,9 @@ function checkBadges(personne) {
   const data = getPersonneData(personne);
   const evalMeta = getEvaluationsFeuille_();
   const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
-  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 27, 'TotalJour');
-  const gestionEmotionIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'gestionEmotion', 22, 'GestionEmotion');
-  const emotion1Index = getEvaluationColumnIndex_(evalMeta.indexes, 'emotion1', 16, 'Emotion1');
+  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 15, 'TotalJour');
+  const gestionEmotionIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'gestionEmotion', 10, 'GestionEmotion');
+  const emotion1Index = getEvaluationColumnIndex_(evalMeta.indexes, 'emotion1', 4, 'Emotion1');
   const evals = evalMeta.rows.filter(r => r[personneIndex] === personne);
   
   const newBadges = [];

@@ -5,7 +5,7 @@
 Ce document décrit les en-têtes attendus pour chaque feuille du classeur.
 
 ### Évaluations
-`ID | Date | Heure | Personne | RangerChambre | FaireLit | RangerJouets | AiderTable | Ecouter | GentilSoeur | Politesse | PasColere | DentsMatin | DentsSoir | Habiller | Cartable | Emotion1 | Emotion2 | Emotion3 | Source1 | Source2 | Source3 | GestionEmotion | TotalCorvees | TotalComportement | TotalRituels | TotalEmotions | TotalJour | Humeur | Commentaire`
+`ID | Date | Heure | Personne | Emotion1 | Emotion2 | Emotion3 | Source1 | Source2 | Source3 | GestionEmotion | TotalCorvees | TotalComportement | TotalRituels | TotalEmotions | TotalJour | Humeur | Commentaire | Taches_Dynamiques`
 
 Les tâches dynamiques peuvent être ajoutées en colonnes supplémentaires sous la forme `Txx - Nom de tâche`. Le champ `Taches_Dynamiques` reste disponible comme secours et référence de liaison.
 
