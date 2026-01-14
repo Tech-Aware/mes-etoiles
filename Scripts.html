@@ -17,10 +17,11 @@ const BASE_TASKS = [
 ];
 let activeTasks = [...BASE_TASKS];
 
-const MAX_TASK_SCORE = 1;
+const MAX_TASK_SCORE = 3;
 const MIN_TASK_SCORE = -1;
 const MAX_GESTION_SCORE = 1;
 const MIN_GESTION_SCORE = -1;
+const TASK_SCORE_VALUES = [-1, 0, 1, 2, 3];
 let maxPoints = activeTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
 let minPoints = activeTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
 
@@ -194,11 +195,16 @@ function playRatingSound(context, btn) {
   }
 
   if (rating === 1) {
+    playLowMoodSound(context, frequency, duration);
+    return;
+  }
+
+  if (rating === 2) {
     playNeutralSound(context, frequency, duration);
     return;
   }
 
-  playHappySound(context, frequency, duration);
+  playSuperHappySound(context, frequency, duration);
 }
 
 function getTaskKeyFromRatingButton(btn) {
@@ -237,8 +243,20 @@ function getMoodOffsetForRating(rating) {
     return 0;
   }
 
-  const moodOffsets = [-200, 0, 180];
-  return moodOffsets[Math.max(0, Math.min(rating, moodOffsets.length - 1))];
+  const moodOffsets = {
+    '-1': -240,
+    '0': -140,
+    '1': -60,
+    '2': 80,
+    '3': 160
+  };
+
+  if (!(rating in moodOffsets)) {
+    console.warn('Note hors plage pour le son d’évaluation.', { rating });
+    return 0;
+  }
+
+  return moodOffsets[rating];
 }
 
 function playDisappointmentSound(context, baseFrequency, duration) {
@@ -379,9 +397,10 @@ function createTaskCard(task) {
       <div class="task-desc">${task.description || ''}</div>
     </div>
     <div class="rating-scale">
-      <button class="scale-btn" data-value="-1" onclick="setTaskRating('${task.id}', -1, this)"><span class="scale-emoji">🙁</span></button>
-      <button class="scale-btn" data-value="0" onclick="setTaskRating('${task.id}', 0, this)"><span class="scale-emoji">😐</span></button>
-      <button class="scale-btn" data-value="1" onclick="setTaskRating('${task.id}', 1, this)"><span class="scale-emoji">😊</span></button>
+      <button class="scale-btn" data-value="-1" onclick="setTaskRating('${task.id}', -1, this)"><span class="scale-emoji">☆</span></button>
+      <button class="scale-btn" data-value="1" onclick="setTaskRating('${task.id}', 1, this)"><span class="scale-emoji">⭐</span></button>
+      <button class="scale-btn" data-value="2" onclick="setTaskRating('${task.id}', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
+      <button class="scale-btn" data-value="3" onclick="setTaskRating('${task.id}', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
     </div>
   `;
 
@@ -588,6 +607,10 @@ function resetFormUI() {
   document.getElementById('sources-by-emotion').innerHTML = '';
   renderSourcesByEmotion();
   document.getElementById('preview-score').textContent = '0';
+  const maxLabel = document.querySelector('.preview-max');
+  if (maxLabel) {
+    maxLabel.textContent = `/ ${maxPoints}`;
+  }
   document.getElementById('preview-fill').style.width = '0%';
   document.getElementById('preview-message').textContent = 'Remplis toutes les cases !';
   document.getElementById('btn-submit').disabled = true;
@@ -624,7 +647,7 @@ function showPage(pageName) {
 // ÉVALUATION - TÂCHES
 // ==================================================
 function setTaskRating(taskId, value, btn) {
-  if (![MIN_TASK_SCORE, 0, MAX_TASK_SCORE].includes(value)) {
+  if (!TASK_SCORE_VALUES.includes(value)) {
     console.warn('[setTaskRating] Valeur de tâche inattendue, sélection ignorée.', { taskId, value });
     return;
   }
@@ -772,6 +795,10 @@ function updatePreview() {
   }
   
   document.getElementById('preview-score').textContent = total;
+  const maxLabel = document.querySelector('.preview-max');
+  if (maxLabel) {
+    maxLabel.textContent = `/ ${maxPoints}`;
+  }
   const normalized = (total - minPoints) / (maxPoints - minPoints);
   const fillPercent = Math.max(0, Math.min(100, Math.round(normalized * 100)));
   document.getElementById('preview-fill').style.width = fillPercent + '%';
@@ -853,6 +880,10 @@ function showSuccessModal(result) {
     result.stars >= 4 ? 'BRAVO !' : result.stars >= 2 ? 'Bien joué !' : 'Continue !';
   document.getElementById('success-message').textContent = result.message;
   document.getElementById('success-points').textContent = result.totalJour;
+  const maxLabel = document.getElementById('success-max');
+  if (maxLabel) {
+    maxLabel.textContent = `/ ${result.maxJour} étoiles`;
+  }
   
   const starsDisplay = document.getElementById('success-stars-display');
   starsDisplay.textContent = '⭐'.repeat(result.stars) + '☆'.repeat(5 - result.stars);
