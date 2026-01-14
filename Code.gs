@@ -620,6 +620,123 @@ function mettreAJourFeuilleEvaluations_() {
   }
 }
 
+function construireEntetesEvaluationsCibles_() {
+  const baseHeaders = EVALUATION_REQUIRED_HEADERS.slice();
+  const taskDefinitions = getTachesDefinitions_();
+  const taskHeaders = taskDefinitions
+    .map(task => buildEvaluationTaskHeader_(task))
+    .filter(Boolean);
+
+  const headers = [];
+  const seen = new Set();
+  baseHeaders.concat(taskHeaders).forEach(header => {
+    const normalized = normaliserCleEntete_(header);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    headers.push(header);
+  });
+
+  return headers;
+}
+
+function rangerFeuilleEvaluationsSelonEntetes() {
+  try {
+    const evalMeta = getEvaluationsFeuille_();
+    const sheet = evalMeta.sheet;
+    const headers = evalMeta.headers;
+    const rows = evalMeta.rows;
+
+    if (!headers || headers.length === 0) {
+      Logger.log('[rangerFeuilleEvaluationsSelonEntetes] Aucun en-tête détecté, rangement annulé.');
+      throw new Error('En-têtes introuvables dans la feuille Évaluations.');
+    }
+
+    const targetHeaders = construireEntetesEvaluationsCibles_();
+    if (targetHeaders.length === 0) {
+      Logger.log('[rangerFeuilleEvaluationsSelonEntetes] Aucune entête cible construite, rangement annulé.');
+      throw new Error('Impossible de construire les en-têtes cibles.');
+    }
+
+    const normalizedCurrent = headers.map(header => normaliserCleEntete_(header));
+    const currentIndexByNormalized = normalizedCurrent.reduce((acc, value, index) => {
+      if (!value) {
+        return acc;
+      }
+      if (typeof acc[value] !== 'number') {
+        acc[value] = index;
+      }
+      return acc;
+    }, {});
+
+    const tachesDynamiquesIndex = typeof currentIndexByNormalized[normaliserCleEntete_('Taches_Dynamiques')] === 'number'
+      ? currentIndexByNormalized[normaliserCleEntete_('Taches_Dynamiques')]
+      : -1;
+
+    const rebuiltRows = rows.map((row, rowOffset) => {
+      const newRow = new Array(targetHeaders.length).fill('');
+      const rawDynamic = tachesDynamiquesIndex >= 0 ? row[tachesDynamiquesIndex] : '';
+      let parsedDynamic = null;
+
+      if (rawDynamic) {
+        try {
+          parsedDynamic = JSON.parse(String(rawDynamic));
+        } catch (error) {
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] JSON Taches_Dynamiques invalide ligne ${rowOffset + 2} : ${error}`);
+          parsedDynamic = null;
+        }
+      }
+
+      targetHeaders.forEach((header, targetIndex) => {
+        const normalized = normaliserCleEntete_(header);
+        const sourceIndex = typeof currentIndexByNormalized[normalized] === 'number'
+          ? currentIndexByNormalized[normalized]
+          : -1;
+
+        if (sourceIndex >= 0) {
+          newRow[targetIndex] = row[sourceIndex];
+          return;
+        }
+
+        if (parsedDynamic && header.includes(' - ')) {
+          const taskId = header.split(' - ')[0];
+          if (Object.prototype.hasOwnProperty.call(parsedDynamic, taskId)) {
+            newRow[targetIndex] = parsedDynamic[taskId];
+            return;
+          }
+        }
+      });
+
+      return newRow;
+    });
+
+    sheet.clearContents();
+    sheet.getRange(1, 1, 1, targetHeaders.length).setValues([targetHeaders]);
+    if (rebuiltRows.length > 0) {
+      sheet.getRange(2, 1, rebuiltRows.length, targetHeaders.length).setValues(rebuiltRows);
+    }
+
+    Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Rangement terminé : ${rebuiltRows.length} ligne(s) réordonnée(s), ${targetHeaders.length} colonne(s) ciblée(s).`);
+    return { success: true, message: 'Rangement des évaluations terminé.', lignes: rebuiltRows.length, colonnes: targetHeaders.length };
+  } catch (error) {
+    Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Erreur : ${error}`);
+    throw new Error('Impossible de ranger la feuille Évaluations selon les en-têtes.');
+  }
+}
+
+function lancerRangementEvaluations() {
+  Logger.log('[lancerRangementEvaluations] Démarrage du rangement des évaluations.');
+  try {
+    const resultat = rangerFeuilleEvaluationsSelonEntetes();
+    Logger.log(`[lancerRangementEvaluations] Terminé : ${JSON.stringify(resultat)}`);
+    return resultat;
+  } catch (error) {
+    Logger.log(`[lancerRangementEvaluations] Erreur : ${error}`);
+    throw new Error('Impossible de lancer le rangement des évaluations.');
+  }
+}
+
 function lancerMiseAJourEvaluations() {
   Logger.log('[lancerMiseAJourEvaluations] Démarrage de la mise à jour des évaluations.');
   try {
