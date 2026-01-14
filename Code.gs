@@ -343,6 +343,103 @@ function appliquerValeursTachesDynamiques_(sheet, rowIndex, taskIds, getValueFn,
   });
 }
 
+function mettreAJourFeuilleEvaluations_() {
+  try {
+    const syncResult = synchroniserColonnesTachesEvaluations_();
+    const evalMeta = getEvaluationsFeuille_();
+    const sheet = evalMeta.sheet;
+    const headers = syncResult.headers;
+    const headerIndex = syncResult.headerIndex;
+    const dynamicIndex = headers.indexOf('Taches_Dynamiques');
+
+    if (dynamicIndex === -1) {
+      Logger.log('[mettreAJourFeuilleEvaluations] Colonne "Taches_Dynamiques" introuvable, mise à jour annulée.');
+      return { success: false, message: 'Colonne Taches_Dynamiques introuvable.' };
+    }
+
+    const taskDefinitions = getTachesDefinitions_();
+    const definitionsById = new Map(taskDefinitions.map(task => [task.id, task]));
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      Logger.log('[mettreAJourFeuilleEvaluations] Aucune ligne à traiter dans Évaluations.');
+      return { success: true, message: 'Aucune ligne à mettre à jour.' };
+    }
+
+    let processed = 0;
+    let invalidJson = 0;
+    let missingColumns = 0;
+
+    for (let rowIndex = 2; rowIndex <= lastRow; rowIndex += 1) {
+      try {
+        const dynamicCell = sheet.getRange(rowIndex, dynamicIndex + 1).getValue();
+        const rawPayload = String(dynamicCell || '').trim();
+        if (!rawPayload) {
+          Logger.log(`[mettreAJourFeuilleEvaluations] Ligne ${rowIndex} sans données Taches_Dynamiques, ignorée.`);
+          continue;
+        }
+
+        let parsed;
+        try {
+          parsed = JSON.parse(rawPayload);
+        } catch (error) {
+          invalidJson += 1;
+          Logger.log(`[mettreAJourFeuilleEvaluations] JSON invalide ligne ${rowIndex} : ${error}`);
+          continue;
+        }
+
+        const taskIds = Object.keys(parsed);
+        if (taskIds.length === 0) {
+          Logger.log(`[mettreAJourFeuilleEvaluations] Ligne ${rowIndex} sans tâches dynamiques, ignorée.`);
+          continue;
+        }
+
+        taskIds.forEach(taskId => {
+          const definition = definitionsById.get(taskId);
+          if (!definition) {
+            Logger.log(`[mettreAJourFeuilleEvaluations] Définition manquante pour ${taskId} (ligne ${rowIndex}).`);
+            return;
+          }
+          const header = buildEvaluationTaskHeader_(definition);
+          if (!header) {
+            Logger.log(`[mettreAJourFeuilleEvaluations] En-tête invalide pour ${taskId} (ligne ${rowIndex}).`);
+            return;
+          }
+          const columnIndex = headerIndex[header];
+          if (typeof columnIndex !== 'number') {
+            missingColumns += 1;
+            Logger.log(`[mettreAJourFeuilleEvaluations] Colonne "${header}" absente (ligne ${rowIndex}).`);
+            return;
+          }
+          const value = Number(parsed[taskId] || 0);
+          if (Number.isNaN(value)) {
+            Logger.log(`[mettreAJourFeuilleEvaluations] Valeur non numérique pour ${taskId} (ligne ${rowIndex}), écriture ignorée.`);
+            return;
+          }
+          sheet.getRange(rowIndex, columnIndex + 1).setValue(value);
+        });
+
+        processed += 1;
+        Logger.log(`[mettreAJourFeuilleEvaluations] Ligne ${rowIndex} traitée.`);
+      } catch (rowError) {
+        Logger.log(`[mettreAJourFeuilleEvaluations] Erreur ligne ${rowIndex} : ${rowError}`);
+      }
+    }
+
+    Logger.log(`[mettreAJourFeuilleEvaluations] Terminé: lignes=${processed}, json_invalides=${invalidJson}, colonnes_absentes=${missingColumns}.`);
+    return {
+      success: true,
+      message: 'Mise à jour terminée.',
+      processed,
+      invalidJson,
+      missingColumns
+    };
+  } catch (error) {
+    Logger.log(`[mettreAJourFeuilleEvaluations] Erreur globale : ${error}`);
+    throw new Error('Impossible de mettre à jour la feuille Évaluations.');
+  }
+}
+
 function mettreAJourCoutsRecompenses() {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
