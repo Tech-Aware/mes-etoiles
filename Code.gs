@@ -440,6 +440,18 @@ function mettreAJourFeuilleEvaluations_() {
   }
 }
 
+function lancerMiseAJourEvaluations() {
+  Logger.log('[lancerMiseAJourEvaluations] Démarrage de la mise à jour des évaluations.');
+  try {
+    const resultat = mettreAJourFeuilleEvaluations_();
+    Logger.log(`[lancerMiseAJourEvaluations] Terminé avec succès : ${JSON.stringify(resultat)}`);
+    return resultat;
+  } catch (error) {
+    Logger.log(`[lancerMiseAJourEvaluations] Erreur lors de la mise à jour : ${error}`);
+    throw new Error('Impossible de lancer la mise à jour des évaluations.');
+  }
+}
+
 function mettreAJourCoutsRecompenses() {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
