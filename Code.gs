@@ -223,6 +223,32 @@ function normaliserTexte_(valeur) {
     .trim();
 }
 
+function normaliserCleEntete_(valeur) {
+  const normalized = normaliserTexte_(valeur);
+  if (!normalized) {
+    return '';
+  }
+  return normalized.replace(/[^a-z0-9]/g, '');
+}
+
+function trouverIndexEntete_(headers, aliases, label, fallback) {
+  if (!headers || headers.length === 0) {
+    Logger.log(`[trouverIndexEntete] Aucun en-tête disponible pour "${label}".`);
+    return typeof fallback === 'number' ? fallback : -1;
+  }
+
+  const normalizedHeaders = headers.map(header => normaliserCleEntete_(header));
+  const normalizedAliases = aliases.map(alias => normaliserCleEntete_(alias));
+  const index = normalizedHeaders.findIndex(header => normalizedAliases.includes(header));
+
+  if (index === -1) {
+    Logger.log(`[trouverIndexEntete] En-tête "${label}" introuvable. Valeurs testées: ${JSON.stringify(aliases)}.`);
+    return typeof fallback === 'number' ? fallback : -1;
+  }
+
+  return index;
+}
+
 function getMaxPointsParJour_(personne) {
   try {
     const assigned = getTachesAssigneesPourPersonne_(personne);
@@ -234,28 +260,6 @@ function getMaxPointsParJour_(personne) {
     Logger.log(`[getMaxPointsParJour] Erreur pour ${personne} : ${error}`);
     return { maxPoints: 1, taskCount: 0 };
   }
-}
-
-function getPointsDisponibles_(personneKey, evalData, claimsData) {
-  const evalMeta = getEvaluationsFeuille_();
-  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 15, 'TotalJour');
-  const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
-
-  const totalGagnes = evalData
-    .filter(row => String(row[personneIndex] || '').trim() === personneKey)
-    .reduce((acc, row) => acc + Number(row[totalJourIndex] || 0), 0);
-
-  const totalDepenses = claimsData
-    .filter(row => String(row[2] || '').trim() === personneKey)
-    .filter(row => {
-      const statut = normaliserTexte_(row[5]);
-      return statut !== 'annule' && statut !== 'annulé' && statut !== 'refuse' && statut !== 'refusee' && statut !== 'refusée';
-    })
-    .reduce((acc, row) => acc + Number(row[4] || 0), 0);
-
-  const totalPoints = Math.max(0, totalGagnes - totalDepenses);
-  Logger.log(`[getPointsDisponibles] ${personneKey} : gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
-  return { totalPoints, totalGagnes, totalDepenses };
 }
 
 function getEvaluationsFeuille_() {
@@ -274,13 +278,43 @@ function getEvaluationsFeuille_() {
 
   const headers = data[0].map(value => String(value || '').trim());
   const indexes = {
-    id: headers.indexOf('ID'),
-    date: headers.indexOf('Date'),
-    heure: headers.indexOf('Heure'),
-    personne: headers.indexOf('Personne'),
-    emotion1: headers.indexOf('Emotion1'),
-    gestionEmotion: headers.indexOf('GestionEmotion'),
-    totalJour: headers.indexOf('TotalJour')
+    id: trouverIndexEntete_(headers, ['ID'], 'ID', headers.indexOf('ID')),
+    date: trouverIndexEntete_(headers, ['Date'], 'Date', headers.indexOf('Date')),
+    heure: trouverIndexEntete_(headers, ['Heure'], 'Heure', headers.indexOf('Heure')),
+    personne: trouverIndexEntete_(headers, ['Personne'], 'Personne', headers.indexOf('Personne')),
+    emotion1: trouverIndexEntete_(headers, ['Emotion1', 'Emotion 1'], 'Emotion1', headers.indexOf('Emotion1')),
+    gestionEmotion: trouverIndexEntete_(headers, ['GestionEmotion', 'Gestion Emotion', 'Gestion Émotion'], 'GestionEmotion', headers.indexOf('GestionEmotion')),
+    totalJour: trouverIndexEntete_(headers, ['TotalJour', 'Total Jour'], 'TotalJour', headers.indexOf('TotalJour')),
+    tachesDynamiques: trouverIndexEntete_(headers, ['Taches_Dynamiques', 'Taches Dynamiques', 'Tâches Dynamiques'], 'Taches_Dynamiques', headers.indexOf('Taches_Dynamiques'))
+  };
+
+  return { sheet, headers, rows: data.slice(1), indexes };
+}
+
+function getRecompensesDemandeesMeta_() {
+  const ss = SpreadsheetApp.openById(SS_ID);
+  const sheet = ss.getSheetByName('Récompenses_Demandées');
+  if (!sheet) {
+    Logger.log('[getRecompensesDemandeesMeta] Feuille "Récompenses_Demandées" introuvable.');
+    return { sheet: null, headers: [], rows: [], indexes: {} };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length < 2) {
+    Logger.log('[getRecompensesDemandeesMeta] Feuille "Récompenses_Demandées" vide.');
+    return { sheet, headers: data[0] ? data[0].map(value => String(value || '').trim()) : [], rows: [], indexes: {} };
+  }
+
+  const headers = data[0].map(value => String(value || '').trim());
+  const indexes = {
+    id: trouverIndexEntete_(headers, ['ID'], 'ID', headers.indexOf('ID')),
+    date: trouverIndexEntete_(headers, ['Date'], 'Date', headers.indexOf('Date')),
+    personne: trouverIndexEntete_(headers, ['Personne'], 'Personne', headers.indexOf('Personne')),
+    recompense: trouverIndexEntete_(headers, ['Récompense', 'Recompense'], 'Récompense', headers.indexOf('Récompense')),
+    cout: trouverIndexEntete_(headers, ['Coût', 'Cout'], 'Coût', headers.indexOf('Coût')),
+    statut: trouverIndexEntete_(headers, ['Statut', 'Status'], 'Statut', headers.indexOf('Statut')),
+    validePar: trouverIndexEntete_(headers, ['Validé par', 'Valide par', 'ValidéPar', 'ValidePar'], 'Validé par', headers.indexOf('Validé par')),
+    commentaire: trouverIndexEntete_(headers, ['Commentaire'], 'Commentaire', headers.indexOf('Commentaire'))
   };
 
   return { sheet, headers, rows: data.slice(1), indexes };
@@ -293,6 +327,34 @@ function getEvaluationColumnIndex_(indexes, key, fallback, label) {
     return fallback;
   }
   return idx;
+}
+
+function getPointsDisponibles_(personneKey, evalMeta, claimsMeta) {
+  const evalRows = evalMeta.rows || [];
+  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 15, 'TotalJour');
+  const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
+
+  const totalGagnes = evalRows
+    .filter(row => String(row[personneIndex] || '').trim() === personneKey)
+    .reduce((acc, row) => acc + Number(row[totalJourIndex] || 0), 0);
+
+  const claimsRows = claimsMeta.rows || [];
+  const claimsIndexes = claimsMeta.indexes || {};
+  const personneClaimIndex = typeof claimsIndexes.personne === 'number' ? claimsIndexes.personne : 2;
+  const coutIndex = typeof claimsIndexes.cout === 'number' ? claimsIndexes.cout : 4;
+  const statutIndex = typeof claimsIndexes.statut === 'number' ? claimsIndexes.statut : 5;
+
+  const totalDepenses = claimsRows
+    .filter(row => String(row[personneClaimIndex] || '').trim() === personneKey)
+    .filter(row => {
+      const statut = normaliserTexte_(row[statutIndex]);
+      return statut !== 'annule' && statut !== 'annulé' && statut !== 'refuse' && statut !== 'refusee' && statut !== 'refusée';
+    })
+    .reduce((acc, row) => acc + Number(row[coutIndex] || 0), 0);
+
+  const totalPoints = Math.max(0, totalGagnes - totalDepenses);
+  Logger.log(`[getPointsDisponibles] ${personneKey} : source=TotalJour, gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
+  return { totalPoints, totalGagnes, totalDepenses };
 }
 
 function buildEvaluationTaskHeader_(task) {
@@ -403,10 +465,18 @@ function assurerColonnesEvaluations_(sheet, requiredHeaders) {
     }
 
     let updatedHeaders = existingHeaders.slice();
+    const normalizedExisting = new Set(existingHeaders.map(header => normaliserCleEntete_(header)));
+
     requiredHeaders.forEach(header => {
-      if (!updatedHeaders.includes(header)) {
+      const normalizedHeader = normaliserCleEntete_(header);
+      if (!normalizedHeader) {
+        Logger.log(`[assurerColonnesEvaluations] En-tête requis vide ignoré: "${header}".`);
+        return;
+      }
+      if (!normalizedExisting.has(normalizedHeader)) {
         updatedHeaders.push(header);
         sheet.getRange(1, updatedHeaders.length).setValue(header);
+        normalizedExisting.add(normalizedHeader);
         Logger.log(`[assurerColonnesEvaluations] Colonne "${header}" ajoutée.`);
       }
     });
@@ -455,7 +525,12 @@ function mettreAJourFeuilleEvaluations_() {
     const sheet = evalMeta.sheet;
     const headers = syncResult.headers;
     const headerIndex = syncResult.headerIndex;
-    const dynamicIndex = headers.indexOf('Taches_Dynamiques');
+    const dynamicIndex = trouverIndexEntete_(
+      headers,
+      ['Taches_Dynamiques', 'Taches Dynamiques', 'Tâches Dynamiques'],
+      'Taches_Dynamiques',
+      headers.indexOf('Taches_Dynamiques')
+    );
 
     if (dynamicIndex === -1) {
       Logger.log('[mettreAJourFeuilleEvaluations] Colonne "Taches_Dynamiques" introuvable, mise à jour annulée.');
@@ -542,6 +617,248 @@ function mettreAJourFeuilleEvaluations_() {
   } catch (error) {
     Logger.log(`[mettreAJourFeuilleEvaluations] Erreur globale : ${error}`);
     throw new Error('Impossible de mettre à jour la feuille Évaluations.');
+  }
+}
+
+function construireEntetesEvaluationsCibles_() {
+  const baseHeaders = EVALUATION_REQUIRED_HEADERS.slice();
+  const taskDefinitions = getTachesDefinitions_();
+  const taskHeaders = taskDefinitions
+    .map(task => buildEvaluationTaskHeader_(task))
+    .filter(Boolean);
+
+  const headers = [];
+  const seen = new Set();
+  baseHeaders.concat(taskHeaders).forEach(header => {
+    const normalized = normaliserCleEntete_(header);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    headers.push(header);
+  });
+
+  return headers;
+}
+
+function estValeurNumerique_(valeur) {
+  if (valeur === '' || valeur === null || typeof valeur === 'undefined') {
+    return false;
+  }
+  const numeric = Number(valeur);
+  return !Number.isNaN(numeric);
+}
+
+function estTexteNonNumerique_(valeur) {
+  if (valeur === '' || valeur === null || typeof valeur === 'undefined') {
+    return false;
+  }
+  if (estValeurNumerique_(valeur)) {
+    return false;
+  }
+  const texte = String(valeur || '').trim();
+  return texte.length > 1;
+}
+
+function trouverJsonTachesDynamiques_(row) {
+  if (!row || row.length === 0) {
+    return { parsed: null, raw: null, index: -1 };
+  }
+
+  for (let i = 0; i < row.length; i += 1) {
+    const cell = row[i];
+    if (!cell || typeof cell !== 'string') {
+      continue;
+    }
+    const trimmed = cell.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      return { parsed, raw: trimmed, index: i };
+    } catch (error) {
+      Logger.log(`[trouverJsonTachesDynamiques] JSON invalide à l'index ${i} : ${error}`);
+    }
+  }
+
+  return { parsed: null, raw: null, index: -1 };
+}
+
+function rangerFeuilleEvaluationsSelonEntetes() {
+  try {
+    const evalMeta = getEvaluationsFeuille_();
+    const sheet = evalMeta.sheet;
+    const headers = evalMeta.headers;
+    const rows = evalMeta.rows;
+
+    if (!headers || headers.length === 0) {
+      Logger.log('[rangerFeuilleEvaluationsSelonEntetes] Aucun en-tête détecté, rangement annulé.');
+      throw new Error('En-têtes introuvables dans la feuille Évaluations.');
+    }
+
+    const targetHeaders = construireEntetesEvaluationsCibles_();
+    if (targetHeaders.length === 0) {
+      Logger.log('[rangerFeuilleEvaluationsSelonEntetes] Aucune entête cible construite, rangement annulé.');
+      throw new Error('Impossible de construire les en-têtes cibles.');
+    }
+
+    const normalizedCurrent = headers.map(header => normaliserCleEntete_(header));
+    const currentIndexByNormalized = normalizedCurrent.reduce((acc, value, index) => {
+      if (!value) {
+        return acc;
+      }
+      if (typeof acc[value] !== 'number') {
+        acc[value] = index;
+      }
+      return acc;
+    }, {});
+
+    const tachesDynamiquesNormalized = normaliserCleEntete_('Taches_Dynamiques');
+    const tachesDynamiquesIndex = typeof currentIndexByNormalized[tachesDynamiquesNormalized] === 'number'
+      ? currentIndexByNormalized[tachesDynamiquesNormalized]
+      : -1;
+
+    const targetIndexByNormalized = targetHeaders.reduce((acc, header, index) => {
+      const normalized = normaliserCleEntete_(header);
+      if (!normalized) {
+        return acc;
+      }
+      if (typeof acc[normalized] !== 'number') {
+        acc[normalized] = index;
+      }
+      return acc;
+    }, {});
+
+    const tachesDynamiquesTargetIndex = typeof targetIndexByNormalized[tachesDynamiquesNormalized] === 'number'
+      ? targetIndexByNormalized[tachesDynamiquesNormalized]
+      : -1;
+
+    const taskTargetIndexes = targetHeaders
+      .map((header, index) => (header.includes(' - ') ? index : -1))
+      .filter(index => index >= 0);
+
+    const commentaireIndex = typeof targetIndexByNormalized[normaliserCleEntete_('Commentaire')] === 'number'
+      ? targetIndexByNormalized[normaliserCleEntete_('Commentaire')]
+      : -1;
+
+    const rebuiltRows = rows.map((row, rowOffset) => {
+      const newRow = new Array(targetHeaders.length).fill('');
+      let rawDynamic = tachesDynamiquesIndex >= 0 ? row[tachesDynamiquesIndex] : '';
+      let parsedDynamic = null;
+      let dynamicSourceIndex = tachesDynamiquesIndex;
+
+      if (rawDynamic) {
+        try {
+          parsedDynamic = JSON.parse(String(rawDynamic));
+        } catch (error) {
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] JSON Taches_Dynamiques invalide ligne ${rowOffset + 2} : ${error}`);
+          parsedDynamic = null;
+        }
+      }
+
+      if (!parsedDynamic) {
+        const fallbackDynamic = trouverJsonTachesDynamiques_(row);
+        if (fallbackDynamic.parsed) {
+          parsedDynamic = fallbackDynamic.parsed;
+          rawDynamic = fallbackDynamic.raw;
+          dynamicSourceIndex = fallbackDynamic.index;
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] JSON Taches_Dynamiques détecté ligne ${rowOffset + 2} en colonne ${dynamicSourceIndex + 1}.`);
+        }
+      }
+
+      targetHeaders.forEach((header, targetIndex) => {
+        const normalized = normaliserCleEntete_(header);
+        const sourceIndex = typeof currentIndexByNormalized[normalized] === 'number'
+          ? currentIndexByNormalized[normalized]
+          : -1;
+
+        if (sourceIndex >= 0) {
+          if (dynamicSourceIndex >= 0 && sourceIndex === dynamicSourceIndex && tachesDynamiquesTargetIndex !== targetIndex) {
+            return;
+          }
+          newRow[targetIndex] = row[sourceIndex];
+          return;
+        }
+
+        if (parsedDynamic && header.includes(' - ')) {
+          const taskId = header.split(' - ')[0];
+          if (Object.prototype.hasOwnProperty.call(parsedDynamic, taskId)) {
+            newRow[targetIndex] = parsedDynamic[taskId];
+            return;
+          }
+        }
+      });
+
+      if (parsedDynamic && tachesDynamiquesTargetIndex >= 0) {
+        newRow[tachesDynamiquesTargetIndex] = rawDynamic || JSON.stringify(parsedDynamic);
+      }
+
+      if (tachesDynamiquesTargetIndex >= 0 && !parsedDynamic) {
+        const tachesDynamiquesValue = newRow[tachesDynamiquesTargetIndex];
+        const firstTaskIndex = taskTargetIndexes.length > 0 ? taskTargetIndexes[0] : -1;
+        const firstNumericTaskIndex = taskTargetIndexes.find(index => estValeurNumerique_(newRow[index]));
+
+        if (estValeurNumerique_(tachesDynamiquesValue) && firstTaskIndex >= 0) {
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Décalage détecté ligne ${rowOffset + 2} : données de tâche trouvées en Taches_Dynamiques, réalignement vers les tâches.`);
+          for (let i = taskTargetIndexes.length - 1; i >= 0; i -= 1) {
+            const targetIndex = taskTargetIndexes[i];
+            const sourceIndex = i === 0 ? tachesDynamiquesTargetIndex : taskTargetIndexes[i - 1];
+            newRow[targetIndex] = sourceIndex >= 0 ? newRow[sourceIndex] : '';
+          }
+          newRow[tachesDynamiquesTargetIndex] = '';
+        } else if (!tachesDynamiquesValue && firstTaskIndex >= 0 && typeof firstNumericTaskIndex === 'number' && firstNumericTaskIndex > firstTaskIndex) {
+          const offset = firstNumericTaskIndex - firstTaskIndex;
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Décalage détecté ligne ${rowOffset + 2} : décalage=${offset}, réalignement des tâches.`);
+          for (let i = firstNumericTaskIndex; i < newRow.length; i += 1) {
+            if (!taskTargetIndexes.includes(i)) {
+              continue;
+            }
+            const target = i - offset;
+            if (!taskTargetIndexes.includes(target)) {
+              continue;
+            }
+            newRow[target] = newRow[i];
+            newRow[i] = '';
+          }
+        }
+      }
+
+      if (commentaireIndex >= 0 && !estTexteNonNumerique_(newRow[commentaireIndex])) {
+        const commentaireSourceIndex = taskTargetIndexes.find(index => estTexteNonNumerique_(newRow[index]));
+        if (typeof commentaireSourceIndex === 'number') {
+          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Commentaire repositionné ligne ${rowOffset + 2} depuis la colonne ${commentaireSourceIndex + 1}.`);
+          newRow[commentaireIndex] = newRow[commentaireSourceIndex];
+          newRow[commentaireSourceIndex] = '';
+        }
+      }
+
+      return newRow;
+    });
+
+    sheet.clearContents();
+    sheet.getRange(1, 1, 1, targetHeaders.length).setValues([targetHeaders]);
+    if (rebuiltRows.length > 0) {
+      sheet.getRange(2, 1, rebuiltRows.length, targetHeaders.length).setValues(rebuiltRows);
+    }
+
+    Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Rangement terminé : ${rebuiltRows.length} ligne(s) réordonnée(s), ${targetHeaders.length} colonne(s) ciblée(s).`);
+    return { success: true, message: 'Rangement des évaluations terminé.', lignes: rebuiltRows.length, colonnes: targetHeaders.length };
+  } catch (error) {
+    Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Erreur : ${error}`);
+    throw new Error('Impossible de ranger la feuille Évaluations selon les en-têtes.');
+  }
+}
+
+function lancerRangementEvaluations() {
+  Logger.log('[lancerRangementEvaluations] Démarrage du rangement des évaluations.');
+  try {
+    const resultat = rangerFeuilleEvaluationsSelonEntetes();
+    Logger.log(`[lancerRangementEvaluations] Terminé : ${JSON.stringify(resultat)}`);
+    return resultat;
+  } catch (error) {
+    Logger.log(`[lancerRangementEvaluations] Erreur : ${error}`);
+    throw new Error('Impossible de lancer le rangement des évaluations.');
   }
 }
 
@@ -1140,6 +1457,29 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     
     Logger.log(`[submitEvaluation] Ajout évaluation ${newId} pour ${personne} (Paris=${getParisDateKey(now)}).`);
 
+    // Message selon score
+    const baseTaskCount = assignedTasks.length;
+    const maxPoints = baseTaskCount * MAX_TASK_SCORE + MAX_GESTION_SCORE;
+    const percent = Math.max(0, Math.round((totalJour / maxPoints) * 100));
+
+    let message, stars;
+    if (percent >= 90) {
+      message = "INCROYABLE ! Tu es une vraie STAR ! 🌟";
+      stars = 5;
+    } else if (percent >= 75) {
+      message = "SUPER journée ! Bravo champion ! 🎉";
+      stars = 4;
+    } else if (percent >= 60) {
+      message = "Bien joué ! Continue comme ça ! 👍";
+      stars = 3;
+    } else if (percent >= 40) {
+      message = "Pas mal ! Tu peux faire encore mieux ! 💪";
+      stars = 2;
+    } else {
+      message = "Demain sera meilleur ! On y croit ! 🌈";
+      stars = 1;
+    }
+
     assurerColonnesEvaluations_(sheet, EVALUATION_REQUIRED_HEADERS);
     const syncResult = synchroniserColonnesTachesEvaluations_();
     const preparedHeaders = syncResult.headers;
@@ -1147,10 +1487,15 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const dynamicPayload = Object.keys(dynamicTasks).length > 0 ? JSON.stringify(dynamicTasks) : '';
 
     const rowValues = new Array(preparedHeaders.length).fill('');
-    const setValue = (header, value) => {
-      const idx = headerIndex[header];
+    const setValue = (header, value, aliases = []) => {
+      let idx = headerIndex[header];
       if (typeof idx !== 'number') {
-        Logger.log(`[submitEvaluation] Colonne "${header}" introuvable, valeur ignorée.`);
+        const candidates = [header].concat(aliases);
+        const normalizedCandidates = candidates.map(candidate => normaliserCleEntete_(candidate));
+        idx = preparedHeaders.findIndex(h => normalizedCandidates.includes(normaliserCleEntete_(h)));
+      }
+      if (typeof idx !== 'number' || idx === -1) {
+        Logger.log(`[submitEvaluation] Colonne "${header}" introuvable (aliases=${JSON.stringify(aliases)}), valeur ignorée.`);
         return;
       }
       rowValues[idx] = value;
@@ -1174,7 +1519,7 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     setValue('TotalJour', totalJour);
     setValue('Humeur', humeur);
     setValue('Commentaire', commentaireSafe);
-    setValue('Taches_Dynamiques', dynamicPayload);
+    setValue('Taches_Dynamiques', dynamicPayload, ['Tâches Dynamiques', 'Taches Dynamiques']);
 
     const appendedRowIndex = sheet.getLastRow() + 1;
     sheet.getRange(appendedRowIndex, 1, 1, preparedHeaders.length).setValues([rowValues]);
@@ -1193,29 +1538,6 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     
     // Vérifier badges
     const newBadges = checkBadges(personne);
-    
-    // Message selon score
-    const baseTaskCount = assignedTasks.length;
-    const maxPoints = baseTaskCount * MAX_TASK_SCORE + MAX_GESTION_SCORE;
-    const percent = Math.max(0, Math.round((totalJour / maxPoints) * 100));
-    
-    let message, stars;
-    if (percent >= 90) {
-      message = "INCROYABLE ! Tu es une vraie STAR ! 🌟";
-      stars = 5;
-    } else if (percent >= 75) {
-      message = "SUPER journée ! Bravo champion ! 🎉";
-      stars = 4;
-    } else if (percent >= 60) {
-      message = "Bien joué ! Continue comme ça ! 👍";
-      stars = 3;
-    } else if (percent >= 40) {
-      message = "Pas mal ! Tu peux faire encore mieux ! 💪";
-      stars = 2;
-    } else {
-      message = "Demain sera meilleur ! On y croit ! 🌈";
-      stars = 1;
-    }
     
     return {
       success: true,
@@ -1281,12 +1603,9 @@ function getPersonneData(personne) {
     const totalJourIndex = getEvaluationColumnIndex_(evalIndexes, 'totalJour', 15, 'TotalJour');
 
     // Récompenses demandées (dépenses)
-    const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
-    let claimsData = [];
-    if (!claimsSheet) {
+    const claimsMeta = getRecompensesDemandeesMeta_();
+    if (!claimsMeta.sheet) {
       Logger.log('[getPersonneData] Feuille "Récompenses_Demandées" introuvable, dépenses ignorées.');
-    } else {
-      claimsData = claimsSheet.getDataRange().getValues().slice(1);
     }
     
     // Semaine en cours (Paris)
@@ -1304,7 +1623,7 @@ function getPersonneData(personne) {
     let dailyScores = [null, null, null, null, null, null, null];
     
     const personneEvals = evalData.filter(r => String(r[personneIndex] || '').trim() === personneKey);
-    
+
     personneEvals.forEach(row => {
       const parsedDate = parseSheetDate(row[dateIndex], 'Évaluations.Date');
       if (!parsedDate) {
@@ -1390,7 +1709,7 @@ function getPersonneData(personne) {
       return def ? { id: def[0], nom: def[1], emoji: def[2] } : null;
     }).filter(b => b);
     
-    const pointsDisponibles = getPointsDisponibles_(personneKey, evalData, claimsData);
+    const pointsDisponibles = getPointsDisponibles_(personneKey, evalMeta, claimsMeta);
 
     // Récompenses
     const rewardsSheet = ss.getSheetByName('Récompenses');
@@ -1473,19 +1792,42 @@ function claimReward(personne, rewardId) {
 
   Logger.log(`[claimReward] Demande de récompense pour ${personne} (${rewardId}) : coût=${rewardCost}, points dispos=${data.totalPoints}.`);
   
-  const claimsSheet = ss.getSheetByName('Récompenses_Demandées');
+  const claimsMeta = getRecompensesDemandeesMeta_();
+  const claimsSheet = claimsMeta.sheet;
+  if (!claimsSheet) {
+    Logger.log('[claimReward] Feuille "Récompenses_Demandées" introuvable, enregistrement annulé.');
+    throw new Error('Feuille "Récompenses_Demandées" introuvable.');
+  }
+
+  if (!claimsMeta.headers || claimsMeta.headers.length === 0) {
+    Logger.log('[claimReward] En-têtes absents dans "Récompenses_Demandées", enregistrement annulé.');
+    throw new Error('En-têtes manquants dans la feuille Récompenses_Demandées.');
+  }
+
   const newId = 'C' + String(claimsSheet.getLastRow()).padStart(4, '0');
-  
-  claimsSheet.appendRow([
-    newId,
-    new Date(),
-    personne,
-    reward[1],
-    rewardCost,
-    'En attente',
-    '',
-    ''
-  ]);
+  const rowValues = new Array(claimsMeta.headers.length).fill('');
+  const setClaimValue = (header, value, aliases = []) => {
+    const candidates = [header].concat(aliases);
+    const normalizedCandidates = candidates.map(candidate => normaliserCleEntete_(candidate));
+    const index = claimsMeta.headers.findIndex(h => normalizedCandidates.includes(normaliserCleEntete_(h)));
+    if (index === -1) {
+      Logger.log(`[claimReward] Colonne "${header}" introuvable (aliases=${JSON.stringify(aliases)}), valeur ignorée.`);
+      return;
+    }
+    rowValues[index] = value;
+  };
+
+  setClaimValue('ID', newId);
+  setClaimValue('Date', new Date());
+  setClaimValue('Personne', personne);
+  setClaimValue('Récompense', reward[1], ['Recompense']);
+  setClaimValue('Coût', rewardCost, ['Cout']);
+  setClaimValue('Statut', 'En attente', ['Status']);
+  setClaimValue('Validé par', '', ['Valide par', 'ValidéPar', 'ValidePar']);
+  setClaimValue('Commentaire', '');
+
+  claimsSheet.getRange(claimsSheet.getLastRow() + 1, 1, 1, rowValues.length).setValues([rowValues]);
+  Logger.log(`[claimReward] Demande enregistrée (${newId}) pour ${personne}, coût=${rewardCost}.`);
   
   return { 
     success: true, 
