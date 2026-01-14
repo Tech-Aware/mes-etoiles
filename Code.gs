@@ -271,6 +271,78 @@ function getEvaluationColumnIndex_(indexes, key, fallback, label) {
   return idx;
 }
 
+function buildEvaluationTaskHeader_(task) {
+  const taskId = String(task.id || '').trim();
+  const taskName = String(task.nom || '').trim();
+  if (!taskId || !taskName) {
+    return null;
+  }
+  return `${taskId} - ${taskName}`;
+}
+
+function synchroniserColonnesTachesEvaluations_() {
+  const evalMeta = getEvaluationsFeuille_();
+  const sheet = evalMeta.sheet;
+  const headers = evalMeta.headers.slice();
+  const headerSet = new Set(headers);
+
+  const taskDefinitions = getTachesDefinitions_();
+  if (taskDefinitions.length === 0) {
+    Logger.log('[synchroniserColonnesTachesEvaluations] Aucune tâche détectée, aucune colonne ajoutée.');
+    return { headers, headerIndex: buildHeaderIndexMap_(headers) };
+  }
+
+  let addedCount = 0;
+  taskDefinitions.forEach(task => {
+    const header = buildEvaluationTaskHeader_(task);
+    if (!header) {
+      Logger.log(`[synchroniserColonnesTachesEvaluations] En-tête invalide pour la tâche ${JSON.stringify(task)}.`);
+      return;
+    }
+    if (headerSet.has(header)) {
+      return;
+    }
+    headers.push(header);
+    headerSet.add(header);
+    sheet.getRange(1, headers.length).setValue(header);
+    addedCount += 1;
+    Logger.log(`[synchroniserColonnesTachesEvaluations] Colonne "${header}" ajoutée en position ${headers.length}.`);
+  });
+
+  Logger.log(`[synchroniserColonnesTachesEvaluations] Synchronisation terminée, ${addedCount} colonne(s) ajoutée(s).`);
+  return { headers, headerIndex: buildHeaderIndexMap_(headers) };
+}
+
+function buildHeaderIndexMap_(headers) {
+  return headers.reduce((acc, header, index) => {
+    acc[header] = index;
+    return acc;
+  }, {});
+}
+
+function appliquerValeursTachesDynamiques_(sheet, rowIndex, taskIds, getValueFn, definitionsById, headerIndex) {
+  taskIds.forEach(taskId => {
+    const definition = definitionsById.get(taskId);
+    if (!definition) {
+      Logger.log(`[appliquerValeursTachesDynamiques] Définition introuvable pour ${taskId}, écriture ignorée.`);
+      return;
+    }
+    const header = buildEvaluationTaskHeader_(definition);
+    if (!header) {
+      Logger.log(`[appliquerValeursTachesDynamiques] En-tête invalide pour la tâche ${taskId}, écriture ignorée.`);
+      return;
+    }
+    const columnIndex = headerIndex[header];
+    if (typeof columnIndex !== 'number') {
+      Logger.log(`[appliquerValeursTachesDynamiques] Colonne "${header}" absente, écriture ignorée.`);
+      return;
+    }
+    const value = getValueFn(taskId);
+    sheet.getRange(rowIndex, columnIndex + 1).setValue(value);
+    Logger.log(`[appliquerValeursTachesDynamiques] Valeur ${value} écrite pour ${header} (ligne ${rowIndex}).`);
+  });
+}
+
 function mettreAJourCoutsRecompenses() {
   try {
     const ss = SpreadsheetApp.openById(SS_ID);
@@ -861,7 +933,8 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     
     Logger.log(`[submitEvaluation] Ajout évaluation ${newId} pour ${personne} (Paris=${getParisDateKey(now)}).`);
     
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const syncResult = synchroniserColonnesTachesEvaluations_();
+    const headers = syncResult.headers;
     const dynamicHeader = 'Taches_Dynamiques';
     let dynamicColumnIndex = headers.indexOf(dynamicHeader);
     if (dynamicColumnIndex === -1) {
@@ -912,6 +985,16 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
       commentaireSafe,
       dynamicPayload
     ]);
+
+    const appendedRowIndex = sheet.getLastRow();
+    appliquerValeursTachesDynamiques_(
+      sheet,
+      appendedRowIndex,
+      assignedTasks,
+      safeTaskValue,
+      definitionsById,
+      syncResult.headerIndex
+    );
     
     // Enregistrer dans historique émotions
     saveEmotionHistory(personne, emotions);
