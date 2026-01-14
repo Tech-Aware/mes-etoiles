@@ -19,6 +19,9 @@ const BASE_TASK_IDS = [
   'habiller',
   'cartable'
 ];
+const MAX_TASK_SCORE = 3;
+const MAX_GESTION_SCORE = 1;
+const ALLOWED_TASK_SCORES = [-1, 0, 1, 2, 3];
 
 const TASK_CATEGORY_KEYS = {
   corvees: 'corvees',
@@ -203,8 +206,8 @@ function getMaxPointsParJour_(personne) {
   try {
     const assigned = getTachesAssigneesPourPersonne_(personne);
     const taskCount = assigned.taskIds.length;
-    const maxPoints = Math.max(1, taskCount + 1);
-    Logger.log(`[getMaxPointsParJour] ${personne} : ${taskCount} tâches, maxPoints=${maxPoints}.`);
+    const maxPoints = Math.max(1, taskCount * MAX_TASK_SCORE + MAX_GESTION_SCORE);
+    Logger.log(`[getMaxPointsParJour] ${personne} : ${taskCount} tâches, maxPoints=${maxPoints} (maxTâche=${MAX_TASK_SCORE}, maxÉmotions=${MAX_GESTION_SCORE}).`);
     return { maxPoints, taskCount };
   } catch (error) {
     Logger.log(`[getMaxPointsParJour] Erreur pour ${personne} : ${error}`);
@@ -992,6 +995,10 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
         Logger.log(`[submitEvaluation] Valeur de tâche invalide pour ${taskKey} (${personne}). Valeur remise à 0.`);
         return 0;
       }
+      if (!ALLOWED_TASK_SCORES.includes(value)) {
+        Logger.log(`[submitEvaluation] Valeur de tâche hors plage pour ${taskKey} (${personne}) : ${value}. Valeur remise à 0.`);
+        return 0;
+      }
       return value;
     };
 
@@ -1113,7 +1120,7 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     
     // Message selon score
     const baseTaskCount = assignedTasks.length;
-    const maxPoints = baseTaskCount + 1;
+    const maxPoints = baseTaskCount * MAX_TASK_SCORE + MAX_GESTION_SCORE;
     const percent = Math.max(0, Math.round((totalJour / maxPoints) * 100));
     
     let message, stars;
