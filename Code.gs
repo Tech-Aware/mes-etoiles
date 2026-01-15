@@ -136,6 +136,105 @@ function getMonday_(date) {
 }
 
 // ==================================================
+// GESTION DES POINTS (SCRIPT PROPERTIES)
+// ==================================================
+// Les points sont stockes dans les Script Properties
+// Cle: "points_<NomPersonne>" (normalise)
+// Valeur: nombre entier (total des points disponibles)
+
+function getPointsPropertyKey_(personne) {
+  return 'points_' + normaliserTexte_(personne);
+}
+
+function getPointsProperty_(personne) {
+  const props = PropertiesService.getScriptProperties();
+  const key = getPointsPropertyKey_(personne);
+  const value = props.getProperty(key);
+  if (value === null) {
+    // Premiere utilisation: recalculer depuis les feuilles
+    const calculated = recalculerPointsDepuisFeuilles_(personne);
+    props.setProperty(key, String(calculated));
+    Logger.log(`[getPointsProperty] Initialisation ${personne}: ${calculated} pts`);
+    return calculated;
+  }
+  return Number(value) || 0;
+}
+
+function setPointsProperty_(personne, points) {
+  const props = PropertiesService.getScriptProperties();
+  const key = getPointsPropertyKey_(personne);
+  const safePoints = Math.max(0, Math.round(points));
+  props.setProperty(key, String(safePoints));
+  Logger.log(`[setPointsProperty] ${personne} = ${safePoints} pts`);
+  return safePoints;
+}
+
+function addPointsProperty_(personne, delta) {
+  const current = getPointsProperty_(personne);
+  const newValue = Math.max(0, current + delta);
+  setPointsProperty_(personne, newValue);
+  Logger.log(`[addPointsProperty] ${personne}: ${current} + (${delta}) = ${newValue} pts`);
+  return newValue;
+}
+
+function recalculerPointsDepuisFeuilles_(personne) {
+  const personneKey = String(personne || '').trim();
+
+  // Total gagne = somme des TotalJour
+  let totalGagnes = 0;
+  try {
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Evaluations');
+    const persIdx = headerIndex['Personne'] ?? 3;
+    const totalIdx = headerIndex['TotalJour'] ?? 11;
+
+    rows.forEach(row => {
+      if (String(row[persIdx] || '').trim() === personneKey) {
+        totalGagnes += Number(row[totalIdx]) || 0;
+      }
+    });
+  } catch (error) {
+    Logger.log(`[recalculerPoints] Erreur evaluations: ${error}`);
+  }
+
+  // Total depense = somme des couts (hors annule/refuse)
+  let totalDepenses = 0;
+  try {
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Recompenses_Demandees');
+    const persIdx = headerIndex['Personne'] ?? 2;
+    const coutIdx = headerIndex['Cout'] ?? 4;
+    const statutIdx = headerIndex['Statut'] ?? 5;
+
+    rows.forEach(row => {
+      if (String(row[persIdx] || '').trim() !== personneKey) return;
+      const statut = normaliserTexte_(row[statutIdx]);
+      if (statut === 'annule' || statut === 'refuse' || statut === 'refusee') return;
+      totalDepenses += Number(row[coutIdx]) || 0;
+    });
+  } catch (error) {
+    Logger.log(`[recalculerPoints] Erreur recompenses: ${error}`);
+  }
+
+  return Math.max(0, totalGagnes - totalDepenses);
+}
+
+// Fonction utilitaire pour reinitialiser tous les points (admin)
+function reinitialiserTousLesPoints() {
+  const props = PropertiesService.getScriptProperties();
+  const personnes = getPersonnes();
+  const resultats = [];
+
+  personnes.forEach(p => {
+    const key = getPointsPropertyKey_(p.nom);
+    const calculated = recalculerPointsDepuisFeuilles_(p.nom);
+    props.setProperty(key, String(calculated));
+    resultats.push({ nom: p.nom, points: calculated });
+    Logger.log(`[reinitialiserPoints] ${p.nom}: ${calculated} pts`);
+  });
+
+  return resultats;
+}
+
+// ==================================================
 // SYNCHRONISATION DES FEUILLES
 // ==================================================
 
@@ -490,6 +589,10 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     sheet.appendRow(rowValues);
     Logger.log(`[submitEvaluation] Evaluation ${newId} ajoutee pour ${personne}, total=${totalJour}.`);
 
+    // Mettre a jour les points dans Script Properties
+    const newTotalPoints = addPointsProperty_(personne, totalJour);
+    Logger.log(`[submitEvaluation] Points mis a jour: ${newTotalPoints} pts`);
+
     // Verifier les badges
     const newBadges = checkBadges_(personne);
 
@@ -526,45 +629,10 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
 // ==================================================
 
 function calculerPoints_(personne) {
-  const personneKey = String(personne || '').trim();
-
-  // Total gagne = somme des TotalJour
-  let totalGagnes = 0;
-  try {
-    const { rows, headerIndex } = getFeuilleAvecHeaders_('Evaluations');
-    const persIdx = headerIndex['Personne'] ?? 3;
-    const totalIdx = headerIndex['TotalJour'] ?? 11;
-
-    rows.forEach(row => {
-      if (String(row[persIdx] || '').trim() === personneKey) {
-        totalGagnes += Number(row[totalIdx]) || 0;
-      }
-    });
-  } catch (error) {
-    Logger.log(`[calculerPoints] Erreur evaluations: ${error}`);
-  }
-
-  // Total depense = somme des couts (hors annule/refuse)
-  let totalDepenses = 0;
-  try {
-    const { rows, headerIndex } = getFeuilleAvecHeaders_('Recompenses_Demandees');
-    const persIdx = headerIndex['Personne'] ?? 2;
-    const coutIdx = headerIndex['Cout'] ?? 4;
-    const statutIdx = headerIndex['Statut'] ?? 5;
-
-    rows.forEach(row => {
-      if (String(row[persIdx] || '').trim() !== personneKey) return;
-      const statut = normaliserTexte_(row[statutIdx]);
-      if (statut === 'annule' || statut === 'refuse' || statut === 'refusee') return;
-      totalDepenses += Number(row[coutIdx]) || 0;
-    });
-  } catch (error) {
-    Logger.log(`[calculerPoints] Erreur recompenses: ${error}`);
-  }
-
-  const totalPoints = Math.max(0, totalGagnes - totalDepenses);
-
-  return { totalPoints, totalGagnes, totalDepenses };
+  // Utilise les Script Properties pour performance
+  // Les points sont mis a jour incrementalement lors des evaluations/recompenses
+  const totalPoints = getPointsProperty_(personne);
+  return { totalPoints };
 }
 
 // ==================================================
@@ -781,7 +849,11 @@ function claimReward(personne, rewardId) {
     sheet.appendRow(rowValues);
     Logger.log(`[claimReward] Demande ${newId} pour ${personneKey}: ${rewardNom} (${rewardCout} pts).`);
 
-    return { success: true, message: `"${rewardNom}" demande !` };
+    // Soustraire les points du total stocke
+    const newTotalPoints = addPointsProperty_(personneKey, -rewardCout);
+    Logger.log(`[claimReward] Points apres deduction: ${newTotalPoints} pts`);
+
+    return { success: true, message: `"${rewardNom}" demande !`, newTotalPoints };
 
   } catch (error) {
     Logger.log(`[claimReward] Erreur: ${error}`);
