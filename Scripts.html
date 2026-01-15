@@ -1,51 +1,45 @@
 <script>
 // ==================================================
-// 🌟 MES ÉTOILES - SCRIPTS v4 avec Émotions
+// MES ETOILES - SCRIPTS v5
+// Version simplifiee et optimisee
 // ==================================================
 
 let currentUser = null;
 let userData = null;
 let taskDefinitions = [];
-let taskDefinitionsById = {};
-let knownTaskIds = [];
+let activeTasks = [];
 
-// Tâches
-const BASE_TASKS = [
-  'rangerChambre', 'faireLit', 'rangerJouets', 'aiderTable',
-  'ecouter', 'gentilSoeur', 'politesse', 'pasColere',
-  'dentsMatin', 'dentsSoir', 'habiller', 'cartable'
-];
-let activeTasks = [...BASE_TASKS];
+// Configuration des scores (alignee sur le backend)
+const SCORES = {
+  TASK_MIN: -1,
+  TASK_MAX: 3,
+  TASK_ALLOWED: [-1, 0, 1, 2, 3],
+  // Conversion etoiles → points reels
+  // 0 etoiles=-1pt, 1 etoile=0pt, 2 etoiles=1pt, 3 etoiles=2pts
+  TASK_TO_POINTS: { '-1': -1, '0': -1, '1': 0, '2': 1, '3': 2 },
+  TASK_POINTS_MAX: 2,  // 3 etoiles = 2 points
+  TASK_POINTS_MIN: -1, // 0 etoiles = -1 point
+  GESTION_MIN: -1,
+  GESTION_MAX: 1,
+  GESTION_ALLOWED: [-1, 0, 1]
+};
 
-const MAX_TASK_SCORE = 3;
-const MIN_TASK_SCORE = -1;
-const MAX_GESTION_SCORE = 1;
-const MIN_GESTION_SCORE = -1;
-const TASK_SCORE_VALUES = [-1, 0, 1, 2, 3];
-let maxPoints = activeTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
-let minPoints = activeTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
-
-const emotionSources = [
+// Sources d'emotions (hardcodees)
+const EMOTION_SOURCES = [
   { emoji: '🏠', name: 'Maison' },
-  { emoji: '🏫', name: 'École' },
+  { emoji: '🏫', name: 'Ecole' },
   { emoji: '👫', name: 'Copains' },
-  { emoji: '👭', name: 'Sœur' },
+  { emoji: '👭', name: 'Soeur' },
   { emoji: '👨‍👩‍👧', name: 'Parents' },
-  { emoji: '⚽', name: 'Activité' }
+  { emoji: '⚽', name: 'Activite' }
 ];
 
+// Etat du formulaire
 let taskRatings = {};
 let selectedEmotions = [];
 let selectedSourcesByEmotion = {};
 let gestionScore = null;
 let selectedHumeur = null;
-let audioContext = null;
-
-const audioConfig = {
-  defaultVolume: 0.08,
-  clickDuration: 0.08,
-  sparkleDuration: 0.16
-};
 
 // ==================================================
 // INITIALISATION
@@ -53,288 +47,12 @@ const audioConfig = {
 document.addEventListener('DOMContentLoaded', function() {
   loadPersonnes();
   resetForm();
-  setupBoutonAudio();
-  console.info('Initialisation terminée : audio et effets visuels prêts.');
 });
-
-function setupBoutonAudio() {
-  document.addEventListener('click', event => {
-    const btn = event.target.closest('button');
-    if (!btn) return;
-
-    playButtonSound(btn);
-    triggerButtonVisualEffect(btn, event);
-  });
-}
-
-function ensureAudioContext() {
-  if (audioContext) return audioContext;
-  if (!window.AudioContext && !window.webkitAudioContext) {
-    console.warn('AudioContext non supporté : sons désactivés.');
-    return null;
-  }
-
-  try {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    console.info('AudioContext initialisé pour les effets sonores.');
-  } catch (error) {
-    console.error('Impossible d\'initialiser AudioContext.', error);
-    return null;
-  }
-
-  return audioContext;
-}
-
-function resumeAudioContext(context) {
-  if (!context) return;
-  if (context.state === 'suspended') {
-    context.resume().catch(error => {
-      console.error('Échec de reprise AudioContext.', error);
-    });
-  }
-}
-
-function playButtonSound(btn) {
-  const context = ensureAudioContext();
-  if (!context) return;
-
-  resumeAudioContext(context);
-
-  const soundType = getButtonSoundType(btn);
-  try {
-    if (soundType === 'sparkle') {
-      playSparkleSound(context);
-      return;
-    }
-
-    if (soundType === 'rating') {
-      playRatingSound(context, btn);
-      return;
-    }
-
-    playClickSound(context, soundType);
-  } catch (error) {
-    console.error('Erreur lors de la lecture du son.', error);
-  }
-}
-
-function triggerButtonVisualEffect(btn, event) {
-  const soundType = getButtonSoundType(btn);
-  try {
-    const effect = document.createElement('span');
-    const emoji = getVisualEmoji(btn, soundType);
-    effect.className = `mini-video-effect mini-video-${soundType}`;
-    effect.textContent = emoji;
-
-    const rect = btn.getBoundingClientRect();
-    const left = (event?.clientX ?? rect.left + rect.width / 2) - rect.left;
-    const top = (event?.clientY ?? rect.top + rect.height / 2) - rect.top;
-
-    effect.style.left = `${left}px`;
-    effect.style.top = `${top}px`;
-
-    btn.classList.add('btn-animable');
-    btn.appendChild(effect);
-
-    effect.addEventListener('animationend', () => effect.remove());
-  } catch (error) {
-    console.error('Erreur lors de l\'animation visuelle du bouton.', error);
-  }
-}
-
-function getVisualEmoji(btn, soundType) {
-  if (soundType === 'rating') {
-    const emojiElement = btn.querySelector('.scale-emoji');
-    if (emojiElement) return emojiElement.textContent.trim();
-  }
-  if (soundType === 'emotion') {
-    const emotionFace = btn.querySelector('.emotion-face, .humeur-emoji');
-    if (emotionFace) return emotionFace.textContent.trim();
-  }
-  if (soundType === 'reward') return '🎁';
-  if (soundType === 'nav') return '⭐';
-  if (soundType === 'sparkle') return '✨';
-  return '💫';
-}
-
-function getButtonSoundType(btn) {
-  if (btn.id === 'btn-submit') return 'sparkle';
-  if (btn.classList.contains('nav-btn') || btn.classList.contains('btn-home')) return 'nav';
-  if (btn.classList.contains('scale-btn')) return 'rating';
-  if (btn.classList.contains('emotion-btn') || btn.classList.contains('humeur-btn')) return 'emotion';
-  if (btn.classList.contains('btn-reward')) return 'reward';
-  return 'click';
-}
-
-function playClickSound(context, variant) {
-  const baseFrequency = {
-    click: 520,
-    nav: 480,
-    emotion: 600,
-    reward: 640
-  }[variant] || 520;
-
-  const frequency = baseFrequency + Math.random() * 40;
-  const duration = audioConfig.clickDuration;
-  playTone(context, frequency, duration, 'triangle', audioConfig.defaultVolume);
-}
-
-function playRatingSound(context, btn) {
-  const rating = Number(btn.dataset.value ?? 2);
-  const taskKey = getTaskKeyFromRatingButton(btn);
-  const taskBase = getTaskBaseFrequency(taskKey);
-  const moodOffset = getMoodOffsetForRating(rating);
-  const duration = audioConfig.clickDuration + 0.08;
-  const frequency = taskBase + moodOffset;
-
-  console.info('Lecture son d’évaluation (graduation)', { taskKey, rating, frequency });
-
-  if (rating <= 0) {
-    playDisappointmentSound(context, frequency, duration);
-    return;
-  }
-
-  if (rating === 1) {
-    playLowMoodSound(context, frequency, duration);
-    return;
-  }
-
-  if (rating === 2) {
-    playNeutralSound(context, frequency, duration);
-    return;
-  }
-
-  playSuperHappySound(context, frequency, duration);
-}
-
-function getTaskKeyFromRatingButton(btn) {
-  const card = btn.closest('.task-card');
-  if (!card) return 'default';
-  return card.dataset.task || 'default';
-}
-
-function getTaskBaseFrequency(taskKey) {
-  const taskFrequencyMap = {
-    rangerChambre: 360,
-    faireLit: 380,
-    rangerJouets: 410,
-    aiderTable: 430,
-    ecouter: 450,
-    gentilSoeur: 470,
-    politesse: 490,
-    pasColere: 510,
-    dentsMatin: 530,
-    dentsSoir: 550,
-    habiller: 570,
-    cartable: 590,
-    default: 520
-  };
-
-  if (!taskFrequencyMap[taskKey]) {
-    console.warn('Tâche inconnue pour le son d’évaluation.', { taskKey });
-  }
-
-  return taskFrequencyMap[taskKey] ?? taskFrequencyMap.default;
-}
-
-function getMoodOffsetForRating(rating) {
-  if (Number.isNaN(rating)) {
-    console.warn('Note invalide pour le son d’évaluation.', { rating });
-    return 0;
-  }
-
-  const moodOffsets = {
-    '-1': -240,
-    '0': -140,
-    '1': -60,
-    '2': 80,
-    '3': 160
-  };
-
-  if (!(rating in moodOffsets)) {
-    console.warn('Note hors plage pour le son d’évaluation.', { rating });
-    return 0;
-  }
-
-  return moodOffsets[rating];
-}
-
-function playDisappointmentSound(context, baseFrequency, duration) {
-  const lowFrequency = Math.max(120, baseFrequency - 180);
-  playTone(context, lowFrequency, duration, 'sawtooth', audioConfig.defaultVolume * 0.9);
-  playSlideTone(context, lowFrequency + 60, lowFrequency - 40, duration, 'square', audioConfig.defaultVolume * 0.5);
-}
-
-function playLowMoodSound(context, baseFrequency, duration) {
-  const startFrequency = Math.max(160, baseFrequency - 120);
-  playSlideTone(context, startFrequency + 30, startFrequency - 20, duration, 'triangle', audioConfig.defaultVolume * 0.6);
-}
-
-function playNeutralSound(context, baseFrequency, duration) {
-  playTone(context, baseFrequency, duration, 'triangle', audioConfig.defaultVolume * 0.6);
-}
-
-function playHappySound(context, baseFrequency, duration) {
-  playTone(context, baseFrequency, duration, 'sine', audioConfig.defaultVolume * 0.7);
-  playTone(context, baseFrequency + 140, duration, 'sine', audioConfig.defaultVolume * 0.5);
-  playSlideTone(context, baseFrequency + 60, baseFrequency + 120, duration, 'triangle', audioConfig.defaultVolume * 0.4);
-}
-
-function playSuperHappySound(context, baseFrequency, duration) {
-  playTone(context, baseFrequency + 80, duration, 'sine', audioConfig.defaultVolume * 0.85);
-  playTone(context, baseFrequency + 200, duration, 'sine', audioConfig.defaultVolume * 0.65);
-  playTone(context, baseFrequency + 320, duration, 'sine', audioConfig.defaultVolume * 0.45);
-  playSlideTone(context, baseFrequency + 120, baseFrequency + 260, duration, 'triangle', audioConfig.defaultVolume * 0.5);
-}
-
-function playSparkleSound(context) {
-  const now = context.currentTime;
-  playTone(context, 740, audioConfig.sparkleDuration, 'sine', audioConfig.defaultVolume, now);
-  playTone(context, 940, audioConfig.sparkleDuration, 'sine', audioConfig.defaultVolume * 0.8, now + 0.05);
-}
-
-function playTone(context, frequency, duration, waveType, volume, startTime = context.currentTime) {
-  const oscillator = context.createOscillator();
-  const gainNode = context.createGain();
-
-  oscillator.type = waveType;
-  oscillator.frequency.setValueAtTime(frequency, startTime);
-
-  gainNode.gain.setValueAtTime(0, startTime);
-  gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.02);
-  gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-
-  oscillator.connect(gainNode);
-  gainNode.connect(context.destination);
-
-  oscillator.start(startTime);
-  oscillator.stop(startTime + duration + 0.02);
-}
-
-function playSlideTone(context, startFrequency, endFrequency, duration, waveType, volume, startTime = context.currentTime) {
-  const oscillator = context.createOscillator();
-  const gainNode = context.createGain();
-
-  oscillator.type = waveType;
-  oscillator.frequency.setValueAtTime(startFrequency, startTime);
-  oscillator.frequency.exponentialRampToValueAtTime(Math.max(1, endFrequency), startTime + duration);
-
-  gainNode.gain.setValueAtTime(0, startTime);
-  gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.02);
-  gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-
-  oscillator.connect(gainNode);
-  gainNode.connect(context.destination);
-
-  oscillator.start(startTime);
-  oscillator.stop(startTime + duration + 0.02);
-}
 
 function resetForm() {
   taskRatings = {};
-  const tasksToInit = knownTaskIds.length > 0 ? knownTaskIds : BASE_TASKS;
-  tasksToInit.forEach(taskId => {
-    taskRatings[taskId] = activeTasks.includes(taskId) ? null : 0;
+  activeTasks.forEach(taskId => {
+    taskRatings[taskId] = null;
   });
   selectedEmotions = [];
   selectedSourcesByEmotion = {};
@@ -342,166 +60,8 @@ function resetForm() {
   selectedHumeur = null;
 }
 
-function setTaskDefinitions(tasks = []) {
-  taskDefinitions = Array.isArray(tasks) ? tasks : [];
-  taskDefinitionsById = taskDefinitions.reduce((acc, task) => {
-    if (task?.id) {
-      acc[task.id] = task;
-    }
-    return acc;
-  }, {});
-  knownTaskIds = taskDefinitions.map(task => task.id);
-  console.info('[setTaskDefinitions] Définitions de tâches chargées.', { count: taskDefinitions.length });
-  renderTaskCards(taskDefinitions);
-}
-
-function normalizeCategorie(value) {
-  if (!value) return 'comportement';
-  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  if (normalized.includes('corvee') || normalized.includes('travaux')) return 'corvees';
-  if (normalized.includes('rituel')) return 'rituels';
-  if (normalized.includes('comportement')) return 'comportement';
-  return 'comportement';
-}
-
-function getCategoryContainer(categoryKey) {
-  const container = document.querySelector(`.tasks-list[data-category="${categoryKey}"]`);
-  if (!container) {
-    console.warn('[getCategoryContainer] Conteneur introuvable, fallback comportement.', { categoryKey });
-    return document.querySelector('.tasks-list[data-category="comportement"]');
-  }
-  return container;
-}
-
-function updateExistingTaskCard(card, task) {
-  if (!card || !task) return;
-  const nameEl = card.querySelector('.task-name');
-  const descEl = card.querySelector('.task-desc');
-  const emojiEl = card.querySelector('.task-emoji');
-  if (nameEl && task.nom) nameEl.textContent = task.nom;
-  if (descEl && task.description) descEl.textContent = task.description;
-  if (emojiEl && task.emoji) emojiEl.textContent = task.emoji;
-  const scaleButtons = card.querySelectorAll('.scale-btn');
-  scaleButtons.forEach(btn => btn.setAttribute('onclick', `setTaskRating('${task.id}', ${btn.dataset.value}, this)`));
-}
-
-function createTaskCard(task) {
-  const card = document.createElement('div');
-  card.className = 'task-card';
-  card.dataset.task = task.id;
-
-  card.innerHTML = `
-    <div class="task-visual"><div class="task-emoji">${task.emoji || '✨'}</div></div>
-    <div class="task-info">
-      <div class="task-name">${task.nom || task.id}</div>
-      <div class="task-desc">${task.description || ''}</div>
-    </div>
-    <div class="rating-scale">
-      <button class="scale-btn" data-value="-1" onclick="setTaskRating('${task.id}', -1, this)"><span class="scale-emoji">☆</span></button>
-      <button class="scale-btn" data-value="1" onclick="setTaskRating('${task.id}', 1, this)"><span class="scale-emoji">⭐</span></button>
-      <button class="scale-btn" data-value="2" onclick="setTaskRating('${task.id}', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-      <button class="scale-btn" data-value="3" onclick="setTaskRating('${task.id}', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-    </div>
-  `;
-
-  return card;
-}
-
-function renderTaskCards(tasks = []) {
-  if (!Array.isArray(tasks)) {
-    console.warn('[renderTaskCards] Format de tâches invalide, rendu annulé.', { tasks });
-    return;
-  }
-  const containers = document.querySelectorAll('.tasks-list[data-category]');
-  if (!containers.length) {
-    console.warn('[renderTaskCards] Aucun conteneur de tâches trouvé.');
-    return;
-  }
-
-  const existingCards = Array.from(document.querySelectorAll('.task-card[data-task]'));
-  const existingById = existingCards.reduce((acc, card) => {
-    acc[card.dataset.task] = card;
-    return acc;
-  }, {});
-  const renderedIds = new Set();
-
-  const sortedTasks = [...tasks].sort((a, b) => {
-    const orderA = Number.isFinite(a.ordre) ? a.ordre : 9999;
-    const orderB = Number.isFinite(b.ordre) ? b.ordre : 9999;
-    return orderA - orderB;
-  });
-
-  sortedTasks.forEach(task => {
-    if (!task?.id) return;
-    renderedIds.add(task.id);
-    const categoryKey = normalizeCategorie(task.categorie || task.categorieNormalisee);
-    const container = getCategoryContainer(categoryKey);
-    const existing = existingById[task.id];
-    if (existing) {
-      updateExistingTaskCard(existing, task);
-      if (existing.parentElement !== container) {
-        container.appendChild(existing);
-      }
-      return;
-    }
-    const newCard = createTaskCard(task);
-    container.appendChild(newCard);
-  });
-
-  existingCards.forEach(card => {
-    if (!renderedIds.has(card.dataset.task)) {
-      card.remove();
-    }
-  });
-
-  console.info('[renderTaskCards] Cartes de tâches rendues.', { count: sortedTasks.length });
-}
-
-function setActiveTasks(taskIds, allowEmpty = false) {
-  if (!Array.isArray(taskIds)) {
-    console.warn('[setActiveTasks] Liste des tâches invalide, retour à la liste par défaut.', { taskIds });
-    activeTasks = [...BASE_TASKS];
-  } else if (taskIds.length === 0) {
-    if (allowEmpty) {
-      console.info('[setActiveTasks] Aucune tâche assignée détectée, liste vide conservée.');
-      activeTasks = [];
-    } else {
-      console.warn('[setActiveTasks] Liste des tâches vide, retour à la liste par défaut.');
-      activeTasks = [...BASE_TASKS];
-    }
-  } else {
-    const validTaskIds = knownTaskIds.length > 0 ? knownTaskIds : BASE_TASKS;
-    activeTasks = taskIds.filter(taskId => validTaskIds.includes(taskId));
-    if (activeTasks.length === 0) {
-      console.warn('[setActiveTasks] Aucune tâche reconnue, retour à la liste par défaut.', { taskIds });
-      activeTasks = [...BASE_TASKS];
-    }
-  }
-
-  maxPoints = activeTasks.length * MAX_TASK_SCORE + MAX_GESTION_SCORE;
-  minPoints = activeTasks.length * MIN_TASK_SCORE + MIN_GESTION_SCORE;
-  console.info('[setActiveTasks] Tâches actives mises à jour.', { activeTasks, maxPoints, minPoints, allowEmpty });
-}
-
-function applyTaskVisibility() {
-  const cards = document.querySelectorAll('.task-card[data-task]');
-  if (!cards.length) {
-    console.warn('[applyTaskVisibility] Aucune carte de tâche trouvée dans le DOM.');
-    return;
-  }
-
-  cards.forEach(card => {
-    const taskId = card.dataset.task;
-    if (activeTasks.includes(taskId)) {
-      card.style.display = '';
-    } else {
-      card.style.display = 'none';
-    }
-  });
-}
-
 // ==================================================
-// CHARGEMENT DES PERSONNES
+// PERSONNES
 // ==================================================
 function loadPersonnes() {
   google.script.run
@@ -520,13 +80,10 @@ function displayPersonnes(personnes) {
   `).join('');
 }
 
-// ==================================================
-// SÉLECTION PERSONNE
-// ==================================================
 function selectPersonne(nom) {
   currentUser = nom;
   showToast('Chargement...', '');
-  
+
   google.script.run
     .withSuccessHandler(onUserLoaded)
     .withFailureHandler(handleError)
@@ -535,66 +92,117 @@ function selectPersonne(nom) {
 
 function onUserLoaded(data) {
   userData = data;
-  
+
   document.getElementById('header-avatar').textContent = data.avatar;
   document.getElementById('header-name').textContent = data.nom;
   document.getElementById('header-points').textContent = data.totalPoints;
-  
+
   document.getElementById('screen-home').classList.remove('active');
   document.getElementById('screen-main').classList.add('active');
-  
+
   if (data.evaluatedToday) {
     document.getElementById('eval-form').style.display = 'none';
     document.getElementById('already-done').style.display = 'block';
   } else {
     document.getElementById('eval-form').style.display = 'block';
     document.getElementById('already-done').style.display = 'none';
-    resetForm();
-    resetFormUI();
+    loadTaskAssignments(currentUser);
   }
 
-  loadTaskAssignments(currentUser);
-  
   loadStatsPage();
   loadFamilyPage();
   loadRewardsPage();
   loadBadgesPage();
-  
+
   hideToast();
 }
 
+// ==================================================
+// TACHES
+// ==================================================
 function loadTaskAssignments(personne) {
-  if (!personne) {
-    console.warn('[loadTaskAssignments] Personne manquante, tâches par défaut utilisées.');
-    setActiveTasks(BASE_TASKS);
-    applyTaskVisibility();
-    resetForm();
-    resetFormUI();
-    return;
-  }
-
   google.script.run
     .withSuccessHandler(response => {
-      const taskIds = response?.taskIds ?? [];
-      const allowEmpty = response?.allowEmpty ?? false;
-      const tasks = response?.tasks ?? [];
-      if (tasks.length > 0) {
-        setTaskDefinitions(tasks);
-      }
-      setActiveTasks(taskIds, allowEmpty);
+      taskDefinitions = response?.tasks ?? [];
+      activeTasks = response?.taskIds ?? [];
+
+      renderTaskCards(taskDefinitions);
       applyTaskVisibility();
       resetForm();
       resetFormUI();
-      console.info('[loadTaskAssignments] Tâches chargées pour la personne.', { personne, taskIds, allowEmpty, reason: response?.reason });
     })
     .withFailureHandler(error => {
-      console.error('[loadTaskAssignments] Échec du chargement des tâches assignées.', error);
-      setActiveTasks(BASE_TASKS);
-      applyTaskVisibility();
-      resetForm();
-      resetFormUI();
+      console.error('[loadTaskAssignments] Erreur:', error);
+      handleError(error);
     })
     .getTachesPourPersonne(personne);
+}
+
+function normalizeCategorie(value) {
+  if (!value) return 'autres';
+  const n = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (n.includes('corvee') || n.includes('travaux')) return 'corvees';
+  if (n.includes('rituel')) return 'rituels';
+  if (n.includes('comportement')) return 'comportement';
+  return 'autres';
+}
+
+function getCategoryContainer(categoryKey) {
+  let container = document.querySelector(`.tasks-list[data-category="${categoryKey}"]`);
+  if (!container) {
+    container = document.querySelector('.tasks-list[data-category="autres"]');
+  }
+  if (!container) {
+    container = document.querySelector('.tasks-list[data-category="comportement"]');
+  }
+  return container;
+}
+
+function renderTaskCards(tasks) {
+  // Nettoyer les conteneurs existants
+  document.querySelectorAll('.tasks-list[data-category]').forEach(container => {
+    container.innerHTML = '';
+  });
+
+  if (!Array.isArray(tasks) || tasks.length === 0) return;
+
+  // Trier par ordre
+  const sortedTasks = [...tasks].sort((a, b) => (a.ordre || 999) - (b.ordre || 999));
+
+  sortedTasks.forEach(task => {
+    if (!task?.id) return;
+
+    const categoryKey = normalizeCategorie(task.categorie);
+    const container = getCategoryContainer(categoryKey);
+    if (!container) return;
+
+    const card = document.createElement('div');
+    card.className = 'task-card';
+    card.dataset.task = task.id;
+
+    card.innerHTML = `
+      <div class="task-visual"><div class="task-emoji">${task.emoji || '✨'}</div></div>
+      <div class="task-info">
+        <div class="task-name">${task.nom || task.id}</div>
+        <div class="task-desc">${task.description || ''}</div>
+      </div>
+      <div class="rating-scale">
+        <button class="scale-btn" data-value="-1" onclick="setTaskRating('${task.id}', -1, this)"><span class="scale-emoji">☆</span></button>
+        <button class="scale-btn" data-value="1" onclick="setTaskRating('${task.id}', 1, this)"><span class="scale-emoji">⭐</span></button>
+        <button class="scale-btn" data-value="2" onclick="setTaskRating('${task.id}', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
+        <button class="scale-btn" data-value="3" onclick="setTaskRating('${task.id}', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
+      </div>
+    `;
+
+    container.appendChild(card);
+  });
+}
+
+function applyTaskVisibility() {
+  document.querySelectorAll('.task-card[data-task]').forEach(card => {
+    const taskId = card.dataset.task;
+    card.style.display = activeTasks.includes(taskId) ? '' : 'none';
+  });
 }
 
 function resetFormUI() {
@@ -603,17 +211,27 @@ function resetFormUI() {
   document.querySelectorAll('.source-btn').forEach(btn => btn.classList.remove('selected'));
   document.querySelectorAll('.gestion-btn').forEach(btn => btn.classList.remove('selected'));
   document.querySelectorAll('.humeur-btn').forEach(btn => btn.classList.remove('selected'));
+
   document.getElementById('selected-emotions').innerHTML = '';
   document.getElementById('sources-by-emotion').innerHTML = '';
   renderSourcesByEmotion();
+
+  const maxPoints = getMaxPoints();
   document.getElementById('preview-score').textContent = '0';
-  const maxLabel = document.querySelector('.preview-max');
-  if (maxLabel) {
-    maxLabel.textContent = `/ ${maxPoints}`;
-  }
+  document.querySelector('.preview-max').textContent = `/ ${maxPoints}`;
   document.getElementById('preview-fill').style.width = '0%';
   document.getElementById('preview-message').textContent = 'Remplis toutes les cases !';
   document.getElementById('btn-submit').disabled = true;
+}
+
+function getMaxPoints() {
+  // Max = (nb taches * 2 points) + 1 point gestion
+  return activeTasks.length * SCORES.TASK_POINTS_MAX + SCORES.GESTION_MAX;
+}
+
+function getMinPoints() {
+  // Min = (nb taches * -1 point) + (-1) point gestion
+  return activeTasks.length * SCORES.TASK_POINTS_MIN + SCORES.GESTION_MIN;
 }
 
 // ==================================================
@@ -625,7 +243,7 @@ function goHome() {
   currentUser = null;
   userData = null;
   resetForm();
-  
+
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.querySelector('.nav-btn[data-page="eval"]').classList.add('active');
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -635,54 +253,50 @@ function goHome() {
 function showPage(pageName) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  
+
   document.getElementById('page-' + pageName).classList.add('active');
   document.querySelector(`.nav-btn[data-page="${pageName}"]`).classList.add('active');
-  
+
   if (pageName === 'family') loadFamilyPage();
   if (pageName === 'stats') loadStatsPage();
 }
 
 // ==================================================
-// ÉVALUATION - TÂCHES
+// EVALUATION - TACHES
 // ==================================================
 function setTaskRating(taskId, value, btn) {
-  if (!TASK_SCORE_VALUES.includes(value)) {
-    console.warn('[setTaskRating] Valeur de tâche inattendue, sélection ignorée.', { taskId, value });
-    return;
-  }
+  if (!SCORES.TASK_ALLOWED.includes(value)) return;
+
   taskRatings[taskId] = value;
-  
+
   const scale = btn.closest('.rating-scale');
   scale.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
-  
+
   updatePreview();
   checkCanSubmit();
 }
 
 // ==================================================
-// ÉVALUATION - ÉMOTIONS
+// EVALUATION - EMOTIONS
 // ==================================================
 function toggleEmotion(emoji, name, btn) {
   const index = selectedEmotions.findIndex(e => e.emoji === emoji);
-  
+
   if (index > -1) {
-    // Retirer
     selectedEmotions.splice(index, 1);
     delete selectedSourcesByEmotion[emoji];
     btn.classList.remove('selected');
   } else {
-    // Ajouter (max 3)
     if (selectedEmotions.length < 3) {
       selectedEmotions.push({ emoji, name });
       btn.classList.add('selected');
     } else {
-      showToast('Maximum 3 émotions !', 'error');
+      showToast('Maximum 3 emotions !', 'error');
       return;
     }
   }
-  
+
   updateSelectedEmotionsDisplay();
   renderSourcesByEmotion();
   checkCanSubmit();
@@ -690,12 +304,12 @@ function toggleEmotion(emoji, name, btn) {
 
 function updateSelectedEmotionsDisplay() {
   const container = document.getElementById('selected-emotions');
-  
+
   if (selectedEmotions.length === 0) {
     container.innerHTML = '';
     return;
   }
-  
+
   container.innerHTML = selectedEmotions.map(e => `
     <div class="selected-emotion-tag">
       <span>${e.emoji}</span>
@@ -708,16 +322,14 @@ function renderSourcesByEmotion() {
   const container = document.getElementById('sources-by-emotion');
 
   if (selectedEmotions.length === 0) {
-    container.innerHTML = '<p class="emotion-hint">Commence par choisir tes émotions.</p>';
+    container.innerHTML = '<p class="emotion-hint">Commence par choisir tes emotions.</p>';
     return;
   }
 
   container.innerHTML = selectedEmotions.map(emotion => {
     const selectedSource = selectedSourcesByEmotion[emotion.emoji]?.emoji;
-    const buttons = emotionSources.map(source => `
+    const buttons = EMOTION_SOURCES.map(source => `
       <button class="source-btn ${selectedSource === source.emoji ? 'selected' : ''}"
-              data-emotion="${emotion.emoji}"
-              data-source="${source.emoji}"
               onclick="selectSourceForEmotion('${emotion.emoji}', '${source.emoji}', '${source.name}', this)">
         <span class="source-icon">${source.emoji}</span>
         <span class="source-name">${source.name}</span>
@@ -735,24 +347,18 @@ function renderSourcesByEmotion() {
 
 function selectSourceForEmotion(emotionEmoji, sourceEmoji, sourceName, btn) {
   const block = btn.closest('.source-emotion-block');
-  if (!block) {
-    console.warn('Bloc source introuvable pour la sélection.', { emotionEmoji, sourceEmoji });
-    return;
-  }
+  if (!block) return;
 
   block.querySelectorAll('.source-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
 
   selectedSourcesByEmotion[emotionEmoji] = { emoji: sourceEmoji, name: sourceName };
-  console.info('Source sélectionnée pour émotion.', { emotionEmoji, sourceEmoji, sourceName });
   checkCanSubmit();
 }
 
 function setGestion(value, btn) {
-  if (![MIN_GESTION_SCORE, 0, MAX_GESTION_SCORE].includes(value)) {
-    console.warn('[setGestion] Valeur de gestion inattendue, sélection ignorée.', { value });
-    return;
-  }
+  if (!SCORES.GESTION_ALLOWED.includes(value)) return;
+
   document.querySelectorAll('.gestion-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   gestionScore = value;
@@ -761,18 +367,11 @@ function setGestion(value, btn) {
 }
 
 function setHumeur(emoji, btn) {
-  if (!btn) {
-    console.error('[setHumeur] Bouton de sélection introuvable pour l\'humeur.');
-    return;
-  }
-  if (!emoji) {
-    console.error('[setHumeur] Emoji d\'humeur manquant, sélection ignorée.');
-    return;
-  }
+  if (!btn || !emoji) return;
+
   document.querySelectorAll('.humeur-btn').forEach(b => b.classList.remove('selected'));
   btn.classList.add('selected');
   selectedHumeur = emoji;
-  console.info(`[setHumeur] Humeur sélectionnée : ${emoji}`);
   checkCanSubmit();
 }
 
@@ -782,89 +381,94 @@ function setHumeur(emoji, btn) {
 function updatePreview() {
   let total = 0;
   let filledTasks = 0;
-  
-  activeTasks.forEach(t => {
-    if (taskRatings[t] !== null) {
-      total += taskRatings[t];
+
+  // Convertir etoiles en points
+  activeTasks.forEach(taskId => {
+    if (taskRatings[taskId] !== null && taskRatings[taskId] !== undefined) {
+      const stars = taskRatings[taskId];
+      const points = SCORES.TASK_TO_POINTS[String(stars)] ?? (stars - 1);
+      total += points;
       filledTasks++;
     }
   });
-  
+
   if (gestionScore !== null) {
     total += gestionScore;
   }
-  
+
+  const maxPoints = getMaxPoints();
+  const minPoints = getMinPoints();
+
   document.getElementById('preview-score').textContent = total;
-  const maxLabel = document.querySelector('.preview-max');
-  if (maxLabel) {
-    maxLabel.textContent = `/ ${maxPoints}`;
-  }
+  document.querySelector('.preview-max').textContent = `/ ${maxPoints}`;
+
+  // Barre de progression normalisee
   const normalized = (total - minPoints) / (maxPoints - minPoints);
   const fillPercent = Math.max(0, Math.min(100, Math.round(normalized * 100)));
   document.getElementById('preview-fill').style.width = fillPercent + '%';
-  
-  const rawPercent = Math.round((total / maxPoints) * 100);
-  const percent = Math.max(0, Math.min(100, rawPercent));
+
+  // Message
+  const percent = maxPoints > 0 ? Math.round((total / maxPoints) * 100) : 0;
   let message = '';
-  
+
   if (filledTasks < activeTasks.length) {
-    message = `Encore ${activeTasks.length - filledTasks} cases à remplir !`;
+    message = `Encore ${activeTasks.length - filledTasks} cases a remplir !`;
   } else if (gestionScore === null) {
-    message = 'N\'oublie pas les émotions !';
+    message = 'N\'oublie pas les emotions !';
   } else if (percent >= 90) {
-    message = '🌟 INCROYABLE ! Tu es une STAR !';
+    message = 'INCROYABLE ! Tu es une STAR !';
   } else if (percent >= 75) {
-    message = '🎉 SUPER journée !';
+    message = 'SUPER journee !';
   } else if (percent >= 50) {
-    message = '👍 Bien joué !';
+    message = 'Bien joue !';
   } else {
-    message = '💪 Tu peux faire mieux demain !';
+    message = 'Tu peux faire mieux demain !';
   }
-  
+
   document.getElementById('preview-message').textContent = message;
 }
 
 function checkCanSubmit() {
-  const allTasksFilled = activeTasks.every(t => taskRatings[t] !== null);
+  const allTasksFilled = activeTasks.every(t => taskRatings[t] !== null && taskRatings[t] !== undefined);
   const emotionsOk = selectedEmotions.length >= 1;
   const sourceOk = selectedEmotions.every(e => selectedSourcesByEmotion[e.emoji]);
   const gestionOk = gestionScore !== null;
   const humeurOk = selectedHumeur !== null;
-  
+
   const canSubmit = allTasksFilled && emotionsOk && sourceOk && gestionOk && humeurOk;
   document.getElementById('btn-submit').disabled = !canSubmit;
 }
 
 // ==================================================
-// SOUMETTRE ÉVALUATION
+// SOUMETTRE EVALUATION
 // ==================================================
 function submitEvaluation() {
   const btn = document.getElementById('btn-submit');
   btn.disabled = true;
   btn.innerHTML = '<span class="btn-icon">⏳</span><span class="btn-text">Envoi...</span>';
-  
-  const taches = taskRatings;
+
   const commentaire = (document.getElementById('daily-favorite')?.value || '').trim();
+
   const emotions = {
-    emotion1: selectedEmotions[0] ? selectedEmotions[0].emoji : '',
-    emotion2: selectedEmotions[1] ? selectedEmotions[1].emoji : '',
-    emotion3: selectedEmotions[2] ? selectedEmotions[2].emoji : '',
-    source1: selectedEmotions[0] ? (selectedSourcesByEmotion[selectedEmotions[0].emoji]?.emoji || '') : '',
-    source2: selectedEmotions[1] ? (selectedSourcesByEmotion[selectedEmotions[1].emoji]?.emoji || '') : '',
-    source3: selectedEmotions[2] ? (selectedSourcesByEmotion[selectedEmotions[2].emoji]?.emoji || '') : '',
+    emotion1: selectedEmotions[0]?.emoji || '',
+    emotion2: selectedEmotions[1]?.emoji || '',
+    emotion3: selectedEmotions[2]?.emoji || '',
+    source1: selectedSourcesByEmotion[selectedEmotions[0]?.emoji]?.emoji || '',
+    source2: selectedSourcesByEmotion[selectedEmotions[1]?.emoji]?.emoji || '',
+    source3: selectedSourcesByEmotion[selectedEmotions[2]?.emoji]?.emoji || '',
     gestion: gestionScore
   };
-  
+
   google.script.run
     .withSuccessHandler(onEvaluationDone)
     .withFailureHandler(handleError)
-    .submitEvaluation(currentUser, taches, emotions, selectedHumeur, commentaire);
+    .submitEvaluation(currentUser, taskRatings, emotions, selectedHumeur, commentaire);
 }
 
 function onEvaluationDone(result) {
   const btn = document.getElementById('btn-submit');
-  btn.innerHTML = '<span class="btn-icon">🌟</span><span class="btn-text">Gagner mes étoiles !</span>';
-  
+  btn.innerHTML = '<span class="btn-icon">🌟</span><span class="btn-text">Gagner mes etoiles !</span>';
+
   if (result.success) {
     showSuccessModal(result);
   } else {
@@ -875,22 +479,19 @@ function onEvaluationDone(result) {
 
 function showSuccessModal(result) {
   const modal = document.getElementById('success-modal');
-  
-  document.getElementById('success-title').textContent = 
-    result.stars >= 4 ? 'BRAVO !' : result.stars >= 2 ? 'Bien joué !' : 'Continue !';
+
+  document.getElementById('success-title').textContent =
+    result.stars >= 4 ? 'BRAVO !' : result.stars >= 2 ? 'Bien joue !' : 'Continue !';
   document.getElementById('success-message').textContent = result.message;
   document.getElementById('success-points').textContent = result.totalJour;
-  const maxLabel = document.getElementById('success-max');
-  if (maxLabel) {
-    maxLabel.textContent = `/ ${result.maxJour} étoiles`;
-  }
-  
+  document.getElementById('success-max').textContent = `/ ${result.maxJour} etoiles`;
+
   const starsDisplay = document.getElementById('success-stars-display');
   starsDisplay.textContent = '⭐'.repeat(result.stars) + '☆'.repeat(5 - result.stars);
-  
+
   const badgesContainer = document.getElementById('success-badges');
   if (result.newBadges && result.newBadges.length > 0) {
-    badgesContainer.innerHTML = '<p style="margin-bottom:10px;font-weight:700;">🎉 Nouveau trophée !</p>' +
+    badgesContainer.innerHTML = '<p style="margin-bottom:10px;font-weight:700;">Nouveau trophee !</p>' +
       result.newBadges.map(b => `
         <div class="new-badge">
           <span>${b.emoji}</span>
@@ -900,7 +501,7 @@ function showSuccessModal(result) {
   } else {
     badgesContainer.innerHTML = '';
   }
-  
+
   modal.classList.add('active');
   createConfetti();
 }
@@ -916,7 +517,7 @@ function createConfetti() {
   const container = document.getElementById('confetti-container');
   container.innerHTML = '';
   const colors = ['#FF6B9D', '#C56CF0', '#54A0FF', '#1DD1A1', '#FECA57', '#FF9F43'];
-  
+
   for (let i = 0; i < 60; i++) {
     const confetti = document.createElement('div');
     confetti.className = 'confetti';
@@ -934,16 +535,18 @@ function createConfetti() {
 // ==================================================
 function loadStatsPage() {
   if (!userData) return;
-  
-  document.getElementById('stats-week-points').textContent = userData.weekPoints;
+
+  const maxPoints = getMaxPoints();
   const maxWeek = maxPoints * 7;
-  const weekFill = Math.max(0, Math.min(100, Math.round((userData.weekPoints / maxWeek) * 100)));
+
+  document.getElementById('stats-week-points').textContent = userData.weekPoints;
+  const weekFill = maxWeek > 0 ? Math.max(0, Math.min(100, Math.round((userData.weekPoints / maxWeek) * 100))) : 0;
   document.getElementById('stats-week-fill').style.width = weekFill + '%';
   document.getElementById('stats-streak').textContent = userData.streak;
-  
+
   const daysContainer = document.getElementById('stats-days');
   const jours = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
-  
+
   daysContainer.innerHTML = userData.dailyScores.map((score, i) => {
     let classe = '';
     if (score !== null) {
@@ -958,21 +561,21 @@ function loadStatsPage() {
       </div>
     `;
   }).join('');
-  
-  // Historique émotions
+
+  // Historique emotions
   const emotionsContainer = document.getElementById('emotions-history-list');
   if (userData.recentEmotions && userData.recentEmotions.length > 0) {
     emotionsContainer.innerHTML = userData.recentEmotions.map(e => {
       let gestionClass = 'gestion-ok';
-      if (e.gestion >= 2) gestionClass = 'gestion-good';
+      if (e.gestion === SCORES.GESTION_MAX) gestionClass = 'gestion-good';
       else if (e.gestion <= 0) gestionClass = 'gestion-bad';
       const emotionList = [e.emotion1, e.emotion2, e.emotion3].filter(Boolean).join(' ');
-      
+
       return `
         <div class="emotion-history-item">
           <div class="emotion-history-date">${e.date}</div>
           <div class="emotion-history-emotions">${emotionList}</div>
-          <div class="emotion-history-gestion ${gestionClass}">${e.gestion}/2</div>
+          <div class="emotion-history-gestion ${gestionClass}">${e.gestion}/${SCORES.GESTION_MAX}</div>
         </div>
       `;
     }).join('');
@@ -998,7 +601,7 @@ function displayFamily(family) {
       <div class="family-avatar">${f.avatar}</div>
       <div class="family-info">
         <div class="family-name">${f.nom}</div>
-        <div class="family-streak">🔥 ${f.streak} jours • 🏆 ${f.badgeCount} trophées</div>
+        <div class="family-streak">🔥 ${f.streak} jours - 🏆 ${f.badgeCount} trophees</div>
       </div>
       <div class="family-pts">${f.totalPoints}</div>
       <div class="family-status">${f.evaluatedToday ? '✅' : '⏳'}</div>
@@ -1007,35 +610,41 @@ function displayFamily(family) {
 }
 
 // ==================================================
-// PAGE RÉCOMPENSES
+// PAGE RECOMPENSES
 // ==================================================
 function loadRewardsPage() {
   if (!userData) return;
-  
+
   document.getElementById('rewards-total').textContent = userData.totalPoints;
-  
+
   const container = document.getElementById('rewards-list');
   container.innerHTML = userData.rewards.map(r => `
     <div class="reward-card ${r.disponible ? 'available' : 'locked'}">
       <div class="reward-emoji">${r.emoji}</div>
       <div class="reward-name">${r.nom}</div>
       <div class="reward-cost">${r.cout} ⭐</div>
-      ${r.disponible 
-        ? `<button class="btn-reward" onclick="claimReward('${r.id}', '${r.nom}')">Je veux ! 🎉</button>`
-        : `<div class="reward-locked">🔒 Encore ${r.cout - userData.totalPoints} étoiles</div>`
+      ${r.disponible
+        ? `<button class="btn-reward" onclick="claimReward('${r.id}', '${r.nom}')">Je veux !</button>`
+        : `<div class="reward-locked">🔒 Encore ${r.cout - userData.totalPoints} etoiles</div>`
       }
     </div>
   `).join('');
 }
 
 function claimReward(rewardId, rewardName) {
-  if (!confirm(`Tu veux vraiment "${rewardName}" ? 🎁`)) return;
-  
+  if (!confirm(`Tu veux vraiment "${rewardName}" ?`)) return;
+
   showToast('Demande en cours...', '');
-  
+
   google.script.run
     .withSuccessHandler(result => {
       showToast(result.message, result.success ? 'success' : 'error');
+      if (result.success) {
+        // Recharger les donnees
+        google.script.run
+          .withSuccessHandler(onUserLoaded)
+          .getPersonneData(currentUser);
+      }
     })
     .withFailureHandler(handleError)
     .claimReward(currentUser, rewardId);
@@ -1046,21 +655,21 @@ function claimReward(rewardId, rewardName) {
 // ==================================================
 function loadBadgesPage() {
   if (!userData) return;
-  
+
   document.getElementById('badges-num').textContent = userData.badges.length;
-  
+
   const container = document.getElementById('badges-list');
-  
+
   if (userData.badges.length === 0) {
     container.innerHTML = `
       <div class="empty-badges">
         <div class="empty-badges-icon">🎯</div>
-        <p>Continue comme ça pour gagner<br>ton premier trophée !</p>
+        <p>Continue comme ca pour gagner<br>ton premier trophee !</p>
       </div>
     `;
     return;
   }
-  
+
   container.innerHTML = userData.badges.map(b => `
     <div class="badge-card obtained">
       <div class="badge-emoji">${b.emoji}</div>
@@ -1084,12 +693,12 @@ function hideToast() {
 
 function handleError(error) {
   console.error(error);
-  showToast('Oups ! Réessaie 😕', 'error');
-  
+  showToast('Oups ! Reessaie', 'error');
+
   const btn = document.getElementById('btn-submit');
   if (btn) {
     btn.disabled = false;
-    btn.innerHTML = '<span class="btn-icon">🌟</span><span class="btn-text">Gagner mes étoiles !</span>';
+    btn.innerHTML = '<span class="btn-icon">🌟</span><span class="btn-text">Gagner mes etoiles !</span>';
   }
 }
 </script>

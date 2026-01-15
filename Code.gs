@@ -1,221 +1,92 @@
 // ==================================================
-// 🌟 SYSTÈME DE MÉRITE FAMILIAL v4
-// Avec section Émotions
+// MES ETOILES - SYSTEME DE MERITE FAMILIAL v5
+// Architecture Code-First avec auto-synchronisation
 // ==================================================
 
-const SS_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 const PARIS_TIMEZONE = 'Europe/Paris';
-const BASE_TASK_IDS = [
-  'rangerChambre',
-  'faireLit',
-  'rangerJouets',
-  'aiderTable',
-  'ecouter',
-  'gentilSoeur',
-  'politesse',
-  'pasColere',
-  'dentsMatin',
-  'dentsSoir',
-  'habiller',
-  'cartable'
-];
-const MAX_TASK_SCORE = 3;
-const MAX_GESTION_SCORE = 1;
-const ALLOWED_TASK_SCORES = [-1, 0, 1, 2, 3];
-const EVALUATION_REQUIRED_HEADERS = [
-  'ID',
-  'Date',
-  'Heure',
-  'Personne',
-  'Emotion1',
-  'Emotion2',
-  'Emotion3',
-  'Source1',
-  'Source2',
-  'Source3',
-  'GestionEmotion',
-  'TotalCorvees',
-  'TotalComportement',
-  'TotalRituels',
-  'TotalEmotions',
-  'TotalJour',
-  'Humeur',
-  'Commentaire',
-  'Taches_Dynamiques'
-];
 
-const TASK_CATEGORY_KEYS = {
-  corvees: 'corvees',
-  comportement: 'comportement',
-  rituels: 'rituels',
-  autres: 'autres'
+// ==================================================
+// CONFIGURATION DES SCORES
+// ==================================================
+const SCORES = {
+  // Valeurs stockees pour les taches
+  TASK_MIN: -1,
+  TASK_MAX: 3,
+  TASK_ALLOWED: [-1, 0, 1, 2, 3],
+  // Conversion etoiles affichees → points reels
+  // 0 etoiles (penalite) → -1 point
+  // 1 etoile → 0 point
+  // 2 etoiles → 1 point
+  // 3 etoiles → 2 points
+  // Formule: points = etoiles - 1 (minimum -1)
+  TASK_TO_POINTS: { '-1': -1, '0': -1, '1': 0, '2': 1, '3': 2 },
+  // Points max par tache = 2 (quand 3 etoiles)
+  TASK_POINTS_MAX: 2,
+  // Gestion des emotions
+  GESTION_MIN: -1,
+  GESTION_MAX: 1,
+  GESTION_ALLOWED: [-1, 0, 1]
 };
 
+// ==================================================
+// SCHEMAS DES FEUILLES (SOURCE DE VERITE)
+// ==================================================
+const SCHEMAS = {
+  Personnes: {
+    headers: ['Nom', 'Avatar', 'Couleur', 'Age'],
+    required: true
+  },
+  Taches: {
+    headers: ['ID', 'Categorie', 'Nom', 'Emoji', 'Description', 'PointsMax', 'Ordre', 'Personnes', 'Jours'],
+    required: true
+  },
+  Evaluations: {
+    headers: ['ID', 'Date', 'Heure', 'Personne', 'Emotion1', 'Emotion2', 'Emotion3', 'Source1', 'Source2', 'Source3', 'GestionEmotion', 'TotalJour', 'Humeur', 'Commentaire'],
+    required: true,
+    dynamic: true // Colonnes de taches ajoutees dynamiquement
+  },
+  Recompenses: {
+    headers: ['ID', 'Nom', 'Emoji', 'Cout', 'Description', 'Actif'],
+    required: true
+  },
+  Recompenses_Demandees: {
+    headers: ['ID', 'Date', 'Personne', 'Recompense', 'Cout', 'Statut', 'ValidePar', 'Commentaire'],
+    required: true
+  },
+  Badges: {
+    headers: ['ID', 'Nom', 'Emoji', 'Description', 'Condition'],
+    required: true
+  },
+  Badges_Obtenus: {
+    headers: ['Personne', 'BadgeID', 'Date'],
+    required: true
+  }
+};
 
 // ==================================================
-// CONFIGURATION - COLONNE JOURS (TÂCHES)
+// JOURS DE LA SEMAINE
 // ==================================================
-const JOURS_SHEET_NAME = 'Jours';
-const JOURS_LISTE = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
-
-function creerFeuilleJoursSemaine() {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    let sheet = ss.getSheetByName(JOURS_SHEET_NAME);
-    if (!sheet) {
-      Logger.log(`[creerFeuilleJoursSemaine] Feuille "${JOURS_SHEET_NAME}" absente, création en cours.`);
-      sheet = ss.insertSheet(JOURS_SHEET_NAME);
-    }
-
-    const existingValues = sheet.getRange(1, 1, sheet.getMaxRows(), 1).getValues();
-    const flattened = existingValues.map(row => String(row[0] || '').trim()).filter(Boolean);
-    if (flattened.length === 0) {
-      Logger.log('[creerFeuilleJoursSemaine] Initialisation de la liste des jours.');
-      sheet.getRange(1, 1, JOURS_LISTE.length, 1).setValues(JOURS_LISTE.map(day => [day]));
-    } else {
-      Logger.log(`[creerFeuilleJoursSemaine] Liste déjà présente (${flattened.length} valeurs), aucune modification.`);
-    }
-
-    return { success: true, message: 'Feuille Jours prête.' };
-  } catch (error) {
-    Logger.log(`[creerFeuilleJoursSemaine] Erreur lors de la création : ${error}`);
-    throw new Error('Impossible de créer ou initialiser la feuille Jours.');
-  }
-}
-
-function creerColonneJoursTaches() {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const sheet = ss.getSheetByName('Tâches');
-    if (!sheet) {
-      Logger.log('[creerColonneJoursTaches] Feuille "Tâches" introuvable, création impossible.');
-      throw new Error('Feuille "Tâches" introuvable.');
-    }
-
-    const headerRow = 1;
-    const columnIndex = 9; // Colonne I
-    const cell = sheet.getRange(headerRow, columnIndex);
-    const currentValue = String(cell.getValue() || '').trim();
-
-    if (currentValue === 'Jours') {
-      Logger.log('[creerColonneJoursTaches] Colonne Jours déjà présente en I1.');
-    } else if (currentValue && currentValue !== 'Jours') {
-      Logger.log(`[creerColonneJoursTaches] Valeur existante en I1 ("${currentValue}"), écrasement avec "Jours".`);
-      cell.setValue('Jours');
-    } else {
-      Logger.log('[creerColonneJoursTaches] Création de la colonne Jours en I1.');
-      cell.setValue('Jours');
-    }
-
-    return { success: true, message: 'Colonne Jours prête en I1.' };
-  } catch (error) {
-    Logger.log(`[creerColonneJoursTaches] Erreur lors de la création : ${error}`);
-    throw new Error('Impossible de créer la colonne Jours dans la feuille Tâches.');
-  }
-}
-
-function configurerValidationJoursTaches() {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const sheetTaches = ss.getSheetByName('Tâches');
-    if (!sheetTaches) {
-      Logger.log('[configurerValidationJoursTaches] Feuille "Tâches" introuvable.');
-      throw new Error('Feuille "Tâches" introuvable.');
-    }
-
-    const sheetJours = ss.getSheetByName(JOURS_SHEET_NAME);
-    if (!sheetJours) {
-      Logger.log('[configurerValidationJoursTaches] Feuille "Jours" introuvable.');
-      throw new Error('Feuille "Jours" introuvable.');
-    }
-
-    const lastRow = Math.max(sheetJours.getLastRow(), 1);
-    const rangeJours = sheetJours.getRange(1, 1, lastRow, 1);
-    const validation = SpreadsheetApp.newDataValidation()
-      .requireValueInRange(rangeJours, true)
-      .setAllowInvalid(true)
-      .build();
-
-    const maxRows = sheetTaches.getMaxRows();
-    const columnIndex = 9; // Colonne I
-    sheetTaches.getRange(2, columnIndex, maxRows - 1, 1).setDataValidation(validation);
-
-    Logger.log('[configurerValidationJoursTaches] Validation appliquée sur Tâches!I2:I.');
-    return { success: true, message: 'Validation Jours appliquée sur la feuille Tâches.' };
-  } catch (error) {
-    Logger.log(`[configurerValidationJoursTaches] Erreur lors de la configuration : ${error}`);
-    throw new Error('Impossible de configurer la validation Jours dans la feuille Tâches.');
-  }
-}
+const JOURS_MAP = {
+  lun: 1, lundi: 1,
+  mar: 2, mardi: 2,
+  mer: 3, mercredi: 3,
+  jeu: 4, jeudi: 4,
+  ven: 5, vendredi: 5,
+  sam: 6, samedi: 6,
+  dim: 7, dimanche: 7,
+  '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7
+};
 
 // ==================================================
-// UTILITAIRES DATES (PARIS)
+// UTILITAIRES
 // ==================================================
-function getParisDateKey(date) {
-  return Utilities.formatDate(date, PARIS_TIMEZONE, 'yyyy-MM-dd');
-}
 
-function getParisMidnight(date) {
-  const [year, month, day] = getParisDateKey(date).split('-').map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function parseSheetDate(value, context) {
-  if (value instanceof Date) {
-    return value;
-  }
-
-  if (typeof value === 'number') {
-    return new Date(value);
-  }
-
-  if (typeof value === 'string') {
-    const match = value.trim().match(
-      /^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/
-    );
-    if (match) {
-      const [, day, month, year, hour = '00', minute = '00', second = '00'] = match;
-      return new Date(
-        Number(year),
-        Number(month) - 1,
-        Number(day),
-        Number(hour),
-        Number(minute),
-        Number(second)
-      );
-    }
-  }
-
-  const fallback = new Date(value);
-  if (Number.isNaN(fallback.getTime())) {
-    Logger.log(`[parseSheetDate] Date invalide (${context}) : ${value}`);
-    return null;
-  }
-  return fallback;
-}
-
-function getParisDateKeyFromValue(value, context) {
-  const parsed = parseSheetDate(value, context);
-  if (!parsed) {
-    return null;
-  }
-  return getParisDateKey(parsed);
-}
-
-function getParisDayIndex(date) {
-  const dayIndex = Number(Utilities.formatDate(date, PARIS_TIMEZONE, 'u'));
-  if (Number.isNaN(dayIndex)) {
-    Logger.log('[getParisDayIndex] Index jour invalide, fallback sur Date.getDay().');
-    const fallback = date.getDay();
-    return fallback === 0 ? 7 : fallback;
-  }
-  return dayIndex;
+function getSpreadsheet_() {
+  return SpreadsheetApp.getActiveSpreadsheet();
 }
 
 function normaliserTexte_(valeur) {
-  if (!valeur) {
-    return '';
-  }
+  if (!valeur) return '';
   return String(valeur)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -223,871 +94,260 @@ function normaliserTexte_(valeur) {
     .trim();
 }
 
-function normaliserCleEntete_(valeur) {
-  const normalized = normaliserTexte_(valeur);
-  if (!normalized) {
-    return '';
-  }
-  return normalized.replace(/[^a-z0-9]/g, '');
+function getParisDateKey_(date) {
+  return Utilities.formatDate(date, PARIS_TIMEZONE, 'yyyy-MM-dd');
 }
 
-function trouverIndexEntete_(headers, aliases, label, fallback) {
-  if (!headers || headers.length === 0) {
-    Logger.log(`[trouverIndexEntete] Aucun en-tête disponible pour "${label}".`);
-    return typeof fallback === 'number' ? fallback : -1;
-  }
-
-  const normalizedHeaders = headers.map(header => normaliserCleEntete_(header));
-  const normalizedAliases = aliases.map(alias => normaliserCleEntete_(alias));
-  const index = normalizedHeaders.findIndex(header => normalizedAliases.includes(header));
-
-  if (index === -1) {
-    Logger.log(`[trouverIndexEntete] En-tête "${label}" introuvable. Valeurs testées: ${JSON.stringify(aliases)}.`);
-    return typeof fallback === 'number' ? fallback : -1;
-  }
-
-  return index;
+function getParisMidnight_(date) {
+  const [year, month, day] = getParisDateKey_(date).split('-').map(Number);
+  return new Date(year, month - 1, day);
 }
 
-function getMaxPointsParJour_(personne) {
+function getParisDayIndex_(date) {
+  const dayIndex = Number(Utilities.formatDate(date, PARIS_TIMEZONE, 'u'));
+  if (Number.isNaN(dayIndex)) {
+    const fallback = date.getDay();
+    return fallback === 0 ? 7 : fallback;
+  }
+  return dayIndex;
+}
+
+function parseDate_(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === 'number') return new Date(value);
+  if (typeof value === 'string') {
+    const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (match) {
+      const [, day, month, year, hour = '00', minute = '00', second = '00'] = match;
+      return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+    }
+  }
+  const fallback = new Date(value);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function getMonday_(date) {
+  const d = getParisMidnight_(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// ==================================================
+// GESTION DES POINTS (SCRIPT PROPERTIES)
+// ==================================================
+// Les points sont stockes dans les Script Properties
+// Cle: "points_<NomPersonne>" (normalise)
+// Valeur: nombre entier (total des points disponibles)
+
+function getPointsPropertyKey_(personne) {
+  return 'points_' + normaliserTexte_(personne);
+}
+
+function getPointsProperty_(personne) {
+  const props = PropertiesService.getScriptProperties();
+  const key = getPointsPropertyKey_(personne);
+  const value = props.getProperty(key);
+  if (value === null) {
+    // Premiere utilisation: recalculer depuis les feuilles
+    const calculated = recalculerPointsDepuisFeuilles_(personne);
+    props.setProperty(key, String(calculated));
+    Logger.log(`[getPointsProperty] Initialisation ${personne}: ${calculated} pts`);
+    return calculated;
+  }
+  return Number(value) || 0;
+}
+
+function setPointsProperty_(personne, points) {
+  const props = PropertiesService.getScriptProperties();
+  const key = getPointsPropertyKey_(personne);
+  const safePoints = Math.max(0, Math.round(points));
+  props.setProperty(key, String(safePoints));
+  Logger.log(`[setPointsProperty] ${personne} = ${safePoints} pts`);
+  return safePoints;
+}
+
+function addPointsProperty_(personne, delta) {
+  const current = getPointsProperty_(personne);
+  const newValue = Math.max(0, current + delta);
+  setPointsProperty_(personne, newValue);
+  Logger.log(`[addPointsProperty] ${personne}: ${current} + (${delta}) = ${newValue} pts`);
+  return newValue;
+}
+
+function recalculerPointsDepuisFeuilles_(personne) {
+  const personneKey = String(personne || '').trim();
+
+  // Total gagne = somme des TotalJour
+  let totalGagnes = 0;
   try {
-    const assigned = getTachesAssigneesPourPersonne_(personne);
-    const taskCount = assigned.taskIds.length;
-    const maxPoints = Math.max(1, taskCount * MAX_TASK_SCORE + MAX_GESTION_SCORE);
-    Logger.log(`[getMaxPointsParJour] ${personne} : ${taskCount} tâches, maxPoints=${maxPoints} (maxTâche=${MAX_TASK_SCORE}, maxÉmotions=${MAX_GESTION_SCORE}).`);
-    return { maxPoints, taskCount };
-  } catch (error) {
-    Logger.log(`[getMaxPointsParJour] Erreur pour ${personne} : ${error}`);
-    return { maxPoints: 1, taskCount: 0 };
-  }
-}
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Evaluations');
+    const persIdx = headerIndex['Personne'] ?? 3;
+    const totalIdx = headerIndex['TotalJour'] ?? 11;
 
-function getEvaluationsFeuille_() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Évaluations');
-  if (!sheet) {
-    Logger.log('[getEvaluationsFeuille] Feuille "Évaluations" introuvable.');
-    throw new Error('Feuille "Évaluations" introuvable.');
-  }
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) {
-    Logger.log('[getEvaluationsFeuille] Feuille "Évaluations" vide.');
-    return { sheet, headers: [], rows: [], indexes: {} };
-  }
-
-  const headers = data[0].map(value => String(value || '').trim());
-  const indexes = {
-    id: trouverIndexEntete_(headers, ['ID'], 'ID', headers.indexOf('ID')),
-    date: trouverIndexEntete_(headers, ['Date'], 'Date', headers.indexOf('Date')),
-    heure: trouverIndexEntete_(headers, ['Heure'], 'Heure', headers.indexOf('Heure')),
-    personne: trouverIndexEntete_(headers, ['Personne'], 'Personne', headers.indexOf('Personne')),
-    emotion1: trouverIndexEntete_(headers, ['Emotion1', 'Emotion 1'], 'Emotion1', headers.indexOf('Emotion1')),
-    gestionEmotion: trouverIndexEntete_(headers, ['GestionEmotion', 'Gestion Emotion', 'Gestion Émotion'], 'GestionEmotion', headers.indexOf('GestionEmotion')),
-    totalJour: trouverIndexEntete_(headers, ['TotalJour', 'Total Jour'], 'TotalJour', headers.indexOf('TotalJour')),
-    tachesDynamiques: trouverIndexEntete_(headers, ['Taches_Dynamiques', 'Taches Dynamiques', 'Tâches Dynamiques'], 'Taches_Dynamiques', headers.indexOf('Taches_Dynamiques'))
-  };
-
-  return { sheet, headers, rows: data.slice(1), indexes };
-}
-
-function getRecompensesDemandeesMeta_() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Récompenses_Demandées');
-  if (!sheet) {
-    Logger.log('[getRecompensesDemandeesMeta] Feuille "Récompenses_Demandées" introuvable.');
-    return { sheet: null, headers: [], rows: [], indexes: {} };
-  }
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) {
-    Logger.log('[getRecompensesDemandeesMeta] Feuille "Récompenses_Demandées" vide.');
-    return { sheet, headers: data[0] ? data[0].map(value => String(value || '').trim()) : [], rows: [], indexes: {} };
-  }
-
-  const headers = data[0].map(value => String(value || '').trim());
-  const indexes = {
-    id: trouverIndexEntete_(headers, ['ID'], 'ID', headers.indexOf('ID')),
-    date: trouverIndexEntete_(headers, ['Date'], 'Date', headers.indexOf('Date')),
-    personne: trouverIndexEntete_(headers, ['Personne'], 'Personne', headers.indexOf('Personne')),
-    recompense: trouverIndexEntete_(headers, ['Récompense', 'Recompense'], 'Récompense', headers.indexOf('Récompense')),
-    cout: trouverIndexEntete_(headers, ['Coût', 'Cout'], 'Coût', headers.indexOf('Coût')),
-    statut: trouverIndexEntete_(headers, ['Statut', 'Status'], 'Statut', headers.indexOf('Statut')),
-    validePar: trouverIndexEntete_(headers, ['Validé par', 'Valide par', 'ValidéPar', 'ValidePar'], 'Validé par', headers.indexOf('Validé par')),
-    commentaire: trouverIndexEntete_(headers, ['Commentaire'], 'Commentaire', headers.indexOf('Commentaire'))
-  };
-
-  return { sheet, headers, rows: data.slice(1), indexes };
-}
-
-function getEvaluationColumnIndex_(indexes, key, fallback, label) {
-  const idx = indexes && typeof indexes[key] === 'number' ? indexes[key] : -1;
-  if (idx === -1) {
-    Logger.log(`[getEvaluationColumnIndex] Colonne "${label}" introuvable, fallback sur index=${fallback}.`);
-    return fallback;
-  }
-  return idx;
-}
-
-function getPointsDisponibles_(personneKey, evalMeta, claimsMeta) {
-  const evalRows = evalMeta.rows || [];
-  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 15, 'TotalJour');
-  const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
-
-  const totalGagnes = evalRows
-    .filter(row => String(row[personneIndex] || '').trim() === personneKey)
-    .reduce((acc, row) => acc + Number(row[totalJourIndex] || 0), 0);
-
-  const claimsRows = claimsMeta.rows || [];
-  const claimsIndexes = claimsMeta.indexes || {};
-  const personneClaimIndex = typeof claimsIndexes.personne === 'number' ? claimsIndexes.personne : 2;
-  const coutIndex = typeof claimsIndexes.cout === 'number' ? claimsIndexes.cout : 4;
-  const statutIndex = typeof claimsIndexes.statut === 'number' ? claimsIndexes.statut : 5;
-
-  const totalDepenses = claimsRows
-    .filter(row => String(row[personneClaimIndex] || '').trim() === personneKey)
-    .filter(row => {
-      const statut = normaliserTexte_(row[statutIndex]);
-      return statut !== 'annule' && statut !== 'annulé' && statut !== 'refuse' && statut !== 'refusee' && statut !== 'refusée';
-    })
-    .reduce((acc, row) => acc + Number(row[coutIndex] || 0), 0);
-
-  const totalPoints = Math.max(0, totalGagnes - totalDepenses);
-  Logger.log(`[getPointsDisponibles] ${personneKey} : source=TotalJour, gagnés=${totalGagnes}, dépensés=${totalDepenses}, disponibles=${totalPoints}.`);
-  return { totalPoints, totalGagnes, totalDepenses };
-}
-
-function buildEvaluationTaskHeader_(task) {
-  const taskId = String(task.id || '').trim();
-  const taskName = String(task.nom || '').trim();
-  if (!taskId || !taskName) {
-    return null;
-  }
-  return `${taskId} - ${taskName}`;
-}
-
-function synchroniserColonnesTachesEvaluations_() {
-  nettoyerColonnesTachesStatiqueEvaluations_();
-  const evalMeta = getEvaluationsFeuille_();
-  const sheet = evalMeta.sheet;
-  const headers = evalMeta.headers.slice();
-  const headerSet = new Set(headers);
-
-  const taskDefinitions = getTachesDefinitions_();
-  if (taskDefinitions.length === 0) {
-    Logger.log('[synchroniserColonnesTachesEvaluations] Aucune tâche détectée, aucune colonne ajoutée.');
-    return { headers, headerIndex: buildHeaderIndexMap_(headers) };
-  }
-
-  let addedCount = 0;
-  taskDefinitions.forEach(task => {
-    const header = buildEvaluationTaskHeader_(task);
-    if (!header) {
-      Logger.log(`[synchroniserColonnesTachesEvaluations] En-tête invalide pour la tâche ${JSON.stringify(task)}.`);
-      return;
-    }
-    if (headerSet.has(header)) {
-      return;
-    }
-    headers.push(header);
-    headerSet.add(header);
-    sheet.getRange(1, headers.length).setValue(header);
-    addedCount += 1;
-    Logger.log(`[synchroniserColonnesTachesEvaluations] Colonne "${header}" ajoutée en position ${headers.length}.`);
-  });
-
-  Logger.log(`[synchroniserColonnesTachesEvaluations] Synchronisation terminée, ${addedCount} colonne(s) ajoutée(s).`);
-  return { headers, headerIndex: buildHeaderIndexMap_(headers) };
-}
-
-function nettoyerColonnesTachesStatiqueEvaluations_() {
-  try {
-    const evalMeta = getEvaluationsFeuille_();
-    const sheet = evalMeta.sheet;
-    const headers = evalMeta.headers;
-    if (headers.length === 0) {
-      Logger.log('[nettoyerColonnesTachesStatiqueEvaluations] Aucun en-tête détecté, rien à supprimer.');
-      return { removed: 0 };
-    }
-
-    const definitions = getTachesDefinitions_();
-    const legacyHeaders = new Set(
-      BASE_TASK_IDS.concat(definitions.map(task => task.nom || '').filter(Boolean))
-        .map(value => normaliserTexte_(value))
-        .filter(Boolean)
-    );
-
-    const columnsToDelete = [];
-    headers.forEach((header, index) => {
-      const normalized = normaliserTexte_(header);
-      if (!normalized) {
-        return;
-      }
-      if (header.includes(' - ')) {
-        return;
-      }
-      if (legacyHeaders.has(normalized)) {
-        columnsToDelete.push(index + 1);
+    rows.forEach(row => {
+      if (String(row[persIdx] || '').trim() === personneKey) {
+        totalGagnes += Number(row[totalIdx]) || 0;
       }
     });
-
-    if (columnsToDelete.length === 0) {
-      Logger.log('[nettoyerColonnesTachesStatiqueEvaluations] Aucune ancienne colonne de tâche détectée.');
-      return { removed: 0 };
-    }
-
-    columnsToDelete
-      .sort((a, b) => b - a)
-      .forEach(columnIndex => {
-        Logger.log(`[nettoyerColonnesTachesStatiqueEvaluations] Suppression colonne ${columnIndex} (${headers[columnIndex - 1]}).`);
-        sheet.deleteColumn(columnIndex);
-      });
-
-    Logger.log(`[nettoyerColonnesTachesStatiqueEvaluations] Colonnes supprimées: ${columnsToDelete.length}.`);
-    return { removed: columnsToDelete.length };
   } catch (error) {
-    Logger.log(`[nettoyerColonnesTachesStatiqueEvaluations] Erreur : ${error}`);
-    throw new Error('Impossible de supprimer les anciennes colonnes de tâches.');
+    Logger.log(`[recalculerPoints] Erreur evaluations: ${error}`);
   }
-}
 
-function assurerColonnesEvaluations_(sheet, requiredHeaders) {
+  // Total depense = somme des couts (hors annule/refuse)
+  let totalDepenses = 0;
   try {
-    const lastColumn = Math.max(sheet.getLastColumn(), 0);
-    const existingHeaders = lastColumn > 0
-      ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(value => String(value || '').trim())
-      : [];
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Recompenses_Demandees');
+    const persIdx = headerIndex['Personne'] ?? 2;
+    const coutIdx = headerIndex['Cout'] ?? 4;
+    const statutIdx = headerIndex['Statut'] ?? 5;
 
-    if (existingHeaders.length === 0 && requiredHeaders.length > 0) {
-      sheet.getRange(1, 1, 1, requiredHeaders.length).setValues([requiredHeaders]);
-      Logger.log('[assurerColonnesEvaluations] En-têtes initialisés.');
-      return requiredHeaders.slice();
-    }
-
-    let updatedHeaders = existingHeaders.slice();
-    const normalizedExisting = new Set(existingHeaders.map(header => normaliserCleEntete_(header)));
-
-    requiredHeaders.forEach(header => {
-      const normalizedHeader = normaliserCleEntete_(header);
-      if (!normalizedHeader) {
-        Logger.log(`[assurerColonnesEvaluations] En-tête requis vide ignoré: "${header}".`);
-        return;
-      }
-      if (!normalizedExisting.has(normalizedHeader)) {
-        updatedHeaders.push(header);
-        sheet.getRange(1, updatedHeaders.length).setValue(header);
-        normalizedExisting.add(normalizedHeader);
-        Logger.log(`[assurerColonnesEvaluations] Colonne "${header}" ajoutée.`);
-      }
+    rows.forEach(row => {
+      if (String(row[persIdx] || '').trim() !== personneKey) return;
+      const statut = normaliserTexte_(row[statutIdx]);
+      if (statut === 'annule' || statut === 'refuse' || statut === 'refusee') return;
+      totalDepenses += Number(row[coutIdx]) || 0;
     });
-
-    return updatedHeaders;
   } catch (error) {
-    Logger.log(`[assurerColonnesEvaluations] Erreur : ${error}`);
-    throw new Error('Impossible d’assurer les colonnes de la feuille Évaluations.');
+    Logger.log(`[recalculerPoints] Erreur recompenses: ${error}`);
   }
+
+  return Math.max(0, totalGagnes - totalDepenses);
 }
 
-function buildHeaderIndexMap_(headers) {
-  return headers.reduce((acc, header, index) => {
-    acc[header] = index;
-    return acc;
-  }, {});
-}
+// Fonction utilitaire pour reinitialiser tous les points (admin)
+function reinitialiserTousLesPoints() {
+  const props = PropertiesService.getScriptProperties();
+  const personnes = getPersonnes();
+  const resultats = [];
 
-function appliquerValeursTachesDynamiques_(sheet, rowIndex, taskIds, getValueFn, definitionsById, headerIndex) {
-  taskIds.forEach(taskId => {
-    const definition = definitionsById.get(taskId);
-    if (!definition) {
-      Logger.log(`[appliquerValeursTachesDynamiques] Définition introuvable pour ${taskId}, écriture ignorée.`);
-      return;
-    }
-    const header = buildEvaluationTaskHeader_(definition);
-    if (!header) {
-      Logger.log(`[appliquerValeursTachesDynamiques] En-tête invalide pour la tâche ${taskId}, écriture ignorée.`);
-      return;
-    }
-    const columnIndex = headerIndex[header];
-    if (typeof columnIndex !== 'number') {
-      Logger.log(`[appliquerValeursTachesDynamiques] Colonne "${header}" absente, écriture ignorée.`);
-      return;
-    }
-    const value = getValueFn(taskId);
-    sheet.getRange(rowIndex, columnIndex + 1).setValue(value);
-    Logger.log(`[appliquerValeursTachesDynamiques] Valeur ${value} écrite pour ${header} (ligne ${rowIndex}).`);
-  });
-}
-
-function mettreAJourFeuilleEvaluations_() {
-  try {
-    const syncResult = synchroniserColonnesTachesEvaluations_();
-    const evalMeta = getEvaluationsFeuille_();
-    const sheet = evalMeta.sheet;
-    const headers = syncResult.headers;
-    const headerIndex = syncResult.headerIndex;
-    const dynamicIndex = trouverIndexEntete_(
-      headers,
-      ['Taches_Dynamiques', 'Taches Dynamiques', 'Tâches Dynamiques'],
-      'Taches_Dynamiques',
-      headers.indexOf('Taches_Dynamiques')
-    );
-
-    if (dynamicIndex === -1) {
-      Logger.log('[mettreAJourFeuilleEvaluations] Colonne "Taches_Dynamiques" introuvable, mise à jour annulée.');
-      return { success: false, message: 'Colonne Taches_Dynamiques introuvable.' };
-    }
-
-    const taskDefinitions = getTachesDefinitions_();
-    const definitionsById = new Map(taskDefinitions.map(task => [task.id, task]));
-
-    const lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
-      Logger.log('[mettreAJourFeuilleEvaluations] Aucune ligne à traiter dans Évaluations.');
-      return { success: true, message: 'Aucune ligne à mettre à jour.' };
-    }
-
-    let processed = 0;
-    let invalidJson = 0;
-    let missingColumns = 0;
-
-    for (let rowIndex = 2; rowIndex <= lastRow; rowIndex += 1) {
-      try {
-        const dynamicCell = sheet.getRange(rowIndex, dynamicIndex + 1).getValue();
-        const rawPayload = String(dynamicCell || '').trim();
-        if (!rawPayload) {
-          Logger.log(`[mettreAJourFeuilleEvaluations] Ligne ${rowIndex} sans données Taches_Dynamiques, ignorée.`);
-          continue;
-        }
-
-        let parsed;
-        try {
-          parsed = JSON.parse(rawPayload);
-        } catch (error) {
-          invalidJson += 1;
-          Logger.log(`[mettreAJourFeuilleEvaluations] JSON invalide ligne ${rowIndex} : ${error}`);
-          continue;
-        }
-
-        const taskIds = Object.keys(parsed);
-        if (taskIds.length === 0) {
-          Logger.log(`[mettreAJourFeuilleEvaluations] Ligne ${rowIndex} sans tâches dynamiques, ignorée.`);
-          continue;
-        }
-
-        taskIds.forEach(taskId => {
-          const definition = definitionsById.get(taskId);
-          if (!definition) {
-            Logger.log(`[mettreAJourFeuilleEvaluations] Définition manquante pour ${taskId} (ligne ${rowIndex}).`);
-            return;
-          }
-          const header = buildEvaluationTaskHeader_(definition);
-          if (!header) {
-            Logger.log(`[mettreAJourFeuilleEvaluations] En-tête invalide pour ${taskId} (ligne ${rowIndex}).`);
-            return;
-          }
-          const columnIndex = headerIndex[header];
-          if (typeof columnIndex !== 'number') {
-            missingColumns += 1;
-            Logger.log(`[mettreAJourFeuilleEvaluations] Colonne "${header}" absente (ligne ${rowIndex}).`);
-            return;
-          }
-          const value = Number(parsed[taskId] || 0);
-          if (Number.isNaN(value)) {
-            Logger.log(`[mettreAJourFeuilleEvaluations] Valeur non numérique pour ${taskId} (ligne ${rowIndex}), écriture ignorée.`);
-            return;
-          }
-          sheet.getRange(rowIndex, columnIndex + 1).setValue(value);
-        });
-
-        processed += 1;
-        Logger.log(`[mettreAJourFeuilleEvaluations] Ligne ${rowIndex} traitée.`);
-      } catch (rowError) {
-        Logger.log(`[mettreAJourFeuilleEvaluations] Erreur ligne ${rowIndex} : ${rowError}`);
-      }
-    }
-
-    Logger.log(`[mettreAJourFeuilleEvaluations] Terminé: lignes=${processed}, json_invalides=${invalidJson}, colonnes_absentes=${missingColumns}.`);
-    return {
-      success: true,
-      message: 'Mise à jour terminée.',
-      processed,
-      invalidJson,
-      missingColumns
-    };
-  } catch (error) {
-    Logger.log(`[mettreAJourFeuilleEvaluations] Erreur globale : ${error}`);
-    throw new Error('Impossible de mettre à jour la feuille Évaluations.');
-  }
-}
-
-function construireEntetesEvaluationsCibles_() {
-  const baseHeaders = EVALUATION_REQUIRED_HEADERS.slice();
-  const taskDefinitions = getTachesDefinitions_();
-  const taskHeaders = taskDefinitions
-    .map(task => buildEvaluationTaskHeader_(task))
-    .filter(Boolean);
-
-  const headers = [];
-  const seen = new Set();
-  baseHeaders.concat(taskHeaders).forEach(header => {
-    const normalized = normaliserCleEntete_(header);
-    if (!normalized || seen.has(normalized)) {
-      return;
-    }
-    seen.add(normalized);
-    headers.push(header);
+  personnes.forEach(p => {
+    const key = getPointsPropertyKey_(p.nom);
+    const calculated = recalculerPointsDepuisFeuilles_(p.nom);
+    props.setProperty(key, String(calculated));
+    resultats.push({ nom: p.nom, points: calculated });
+    Logger.log(`[reinitialiserPoints] ${p.nom}: ${calculated} pts`);
   });
 
-  return headers;
+  return resultats;
 }
 
-function estValeurNumerique_(valeur) {
-  if (valeur === '' || valeur === null || typeof valeur === 'undefined') {
-    return false;
-  }
-  const numeric = Number(valeur);
-  return !Number.isNaN(numeric);
-}
+// ==================================================
+// SYNCHRONISATION DES FEUILLES
+// ==================================================
 
-function estTexteNonNumerique_(valeur) {
-  if (valeur === '' || valeur === null || typeof valeur === 'undefined') {
-    return false;
-  }
-  if (estValeurNumerique_(valeur)) {
-    return false;
-  }
-  const texte = String(valeur || '').trim();
-  return texte.length > 1;
-}
+function synchroniserFeuilles_() {
+  const ss = getSpreadsheet_();
+  const resultats = [];
 
-function trouverJsonTachesDynamiques_(row) {
-  if (!row || row.length === 0) {
-    return { parsed: null, raw: null, index: -1 };
-  }
-
-  for (let i = 0; i < row.length; i += 1) {
-    const cell = row[i];
-    if (!cell || typeof cell !== 'string') {
-      continue;
-    }
-    const trimmed = cell.trim();
-    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
-      continue;
-    }
+  Object.entries(SCHEMAS).forEach(([nomFeuille, schema]) => {
     try {
-      const parsed = JSON.parse(trimmed);
-      return { parsed, raw: trimmed, index: i };
-    } catch (error) {
-      Logger.log(`[trouverJsonTachesDynamiques] JSON invalide à l'index ${i} : ${error}`);
-    }
-  }
+      let sheet = ss.getSheetByName(nomFeuille);
 
-  return { parsed: null, raw: null, index: -1 };
-}
-
-function rangerFeuilleEvaluationsSelonEntetes() {
-  try {
-    const evalMeta = getEvaluationsFeuille_();
-    const sheet = evalMeta.sheet;
-    const headers = evalMeta.headers;
-    const rows = evalMeta.rows;
-
-    if (!headers || headers.length === 0) {
-      Logger.log('[rangerFeuilleEvaluationsSelonEntetes] Aucun en-tête détecté, rangement annulé.');
-      throw new Error('En-têtes introuvables dans la feuille Évaluations.');
-    }
-
-    const targetHeaders = construireEntetesEvaluationsCibles_();
-    if (targetHeaders.length === 0) {
-      Logger.log('[rangerFeuilleEvaluationsSelonEntetes] Aucune entête cible construite, rangement annulé.');
-      throw new Error('Impossible de construire les en-têtes cibles.');
-    }
-
-    const normalizedCurrent = headers.map(header => normaliserCleEntete_(header));
-    const currentIndexByNormalized = normalizedCurrent.reduce((acc, value, index) => {
-      if (!value) {
-        return acc;
-      }
-      if (typeof acc[value] !== 'number') {
-        acc[value] = index;
-      }
-      return acc;
-    }, {});
-
-    const tachesDynamiquesNormalized = normaliserCleEntete_('Taches_Dynamiques');
-    const tachesDynamiquesIndex = typeof currentIndexByNormalized[tachesDynamiquesNormalized] === 'number'
-      ? currentIndexByNormalized[tachesDynamiquesNormalized]
-      : -1;
-
-    const targetIndexByNormalized = targetHeaders.reduce((acc, header, index) => {
-      const normalized = normaliserCleEntete_(header);
-      if (!normalized) {
-        return acc;
-      }
-      if (typeof acc[normalized] !== 'number') {
-        acc[normalized] = index;
-      }
-      return acc;
-    }, {});
-
-    const tachesDynamiquesTargetIndex = typeof targetIndexByNormalized[tachesDynamiquesNormalized] === 'number'
-      ? targetIndexByNormalized[tachesDynamiquesNormalized]
-      : -1;
-
-    const taskTargetIndexes = targetHeaders
-      .map((header, index) => (header.includes(' - ') ? index : -1))
-      .filter(index => index >= 0);
-
-    const commentaireIndex = typeof targetIndexByNormalized[normaliserCleEntete_('Commentaire')] === 'number'
-      ? targetIndexByNormalized[normaliserCleEntete_('Commentaire')]
-      : -1;
-
-    const rebuiltRows = rows.map((row, rowOffset) => {
-      const newRow = new Array(targetHeaders.length).fill('');
-      let rawDynamic = tachesDynamiquesIndex >= 0 ? row[tachesDynamiquesIndex] : '';
-      let parsedDynamic = null;
-      let dynamicSourceIndex = tachesDynamiquesIndex;
-
-      if (rawDynamic) {
-        try {
-          parsedDynamic = JSON.parse(String(rawDynamic));
-        } catch (error) {
-          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] JSON Taches_Dynamiques invalide ligne ${rowOffset + 2} : ${error}`);
-          parsedDynamic = null;
-        }
+      // Creer la feuille si elle n'existe pas
+      if (!sheet) {
+        sheet = ss.insertSheet(nomFeuille);
+        Logger.log(`[sync] Feuille "${nomFeuille}" creee.`);
+        resultats.push({ feuille: nomFeuille, action: 'creee' });
       }
 
-      if (!parsedDynamic) {
-        const fallbackDynamic = trouverJsonTachesDynamiques_(row);
-        if (fallbackDynamic.parsed) {
-          parsedDynamic = fallbackDynamic.parsed;
-          rawDynamic = fallbackDynamic.raw;
-          dynamicSourceIndex = fallbackDynamic.index;
-          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] JSON Taches_Dynamiques détecté ligne ${rowOffset + 2} en colonne ${dynamicSourceIndex + 1}.`);
-        }
-      }
+      // Verifier et corriger les en-tetes
+      const lastCol = Math.max(sheet.getLastColumn(), 1);
+      const existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0]
+        .map(h => String(h || '').trim())
+        .filter(Boolean);
 
-      targetHeaders.forEach((header, targetIndex) => {
-        const normalized = normaliserCleEntete_(header);
-        const sourceIndex = typeof currentIndexByNormalized[normalized] === 'number'
-          ? currentIndexByNormalized[normalized]
-          : -1;
-
-        if (sourceIndex >= 0) {
-          if (dynamicSourceIndex >= 0 && sourceIndex === dynamicSourceIndex && tachesDynamiquesTargetIndex !== targetIndex) {
-            return;
-          }
-          newRow[targetIndex] = row[sourceIndex];
-          return;
-        }
-
-        if (parsedDynamic && header.includes(' - ')) {
-          const taskId = header.split(' - ')[0];
-          if (Object.prototype.hasOwnProperty.call(parsedDynamic, taskId)) {
-            newRow[targetIndex] = parsedDynamic[taskId];
-            return;
-          }
-        }
-      });
-
-      if (parsedDynamic && tachesDynamiquesTargetIndex >= 0) {
-        newRow[tachesDynamiquesTargetIndex] = rawDynamic || JSON.stringify(parsedDynamic);
-      }
-
-      if (tachesDynamiquesTargetIndex >= 0 && !parsedDynamic) {
-        const tachesDynamiquesValue = newRow[tachesDynamiquesTargetIndex];
-        const firstTaskIndex = taskTargetIndexes.length > 0 ? taskTargetIndexes[0] : -1;
-        const firstNumericTaskIndex = taskTargetIndexes.find(index => estValeurNumerique_(newRow[index]));
-
-        if (estValeurNumerique_(tachesDynamiquesValue) && firstTaskIndex >= 0) {
-          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Décalage détecté ligne ${rowOffset + 2} : données de tâche trouvées en Taches_Dynamiques, réalignement vers les tâches.`);
-          for (let i = taskTargetIndexes.length - 1; i >= 0; i -= 1) {
-            const targetIndex = taskTargetIndexes[i];
-            const sourceIndex = i === 0 ? tachesDynamiquesTargetIndex : taskTargetIndexes[i - 1];
-            newRow[targetIndex] = sourceIndex >= 0 ? newRow[sourceIndex] : '';
-          }
-          newRow[tachesDynamiquesTargetIndex] = '';
-        } else if (!tachesDynamiquesValue && firstTaskIndex >= 0 && typeof firstNumericTaskIndex === 'number' && firstNumericTaskIndex > firstTaskIndex) {
-          const offset = firstNumericTaskIndex - firstTaskIndex;
-          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Décalage détecté ligne ${rowOffset + 2} : décalage=${offset}, réalignement des tâches.`);
-          for (let i = firstNumericTaskIndex; i < newRow.length; i += 1) {
-            if (!taskTargetIndexes.includes(i)) {
-              continue;
-            }
-            const target = i - offset;
-            if (!taskTargetIndexes.includes(target)) {
-              continue;
-            }
-            newRow[target] = newRow[i];
-            newRow[i] = '';
-          }
-        }
-      }
-
-      if (commentaireIndex >= 0 && !estTexteNonNumerique_(newRow[commentaireIndex])) {
-        const commentaireSourceIndex = taskTargetIndexes.find(index => estTexteNonNumerique_(newRow[index]));
-        if (typeof commentaireSourceIndex === 'number') {
-          Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Commentaire repositionné ligne ${rowOffset + 2} depuis la colonne ${commentaireSourceIndex + 1}.`);
-          newRow[commentaireIndex] = newRow[commentaireSourceIndex];
-          newRow[commentaireSourceIndex] = '';
-        }
-      }
-
-      return newRow;
-    });
-
-    sheet.clearContents();
-    sheet.getRange(1, 1, 1, targetHeaders.length).setValues([targetHeaders]);
-    if (rebuiltRows.length > 0) {
-      sheet.getRange(2, 1, rebuiltRows.length, targetHeaders.length).setValues(rebuiltRows);
-    }
-
-    Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Rangement terminé : ${rebuiltRows.length} ligne(s) réordonnée(s), ${targetHeaders.length} colonne(s) ciblée(s).`);
-    return { success: true, message: 'Rangement des évaluations terminé.', lignes: rebuiltRows.length, colonnes: targetHeaders.length };
-  } catch (error) {
-    Logger.log(`[rangerFeuilleEvaluationsSelonEntetes] Erreur : ${error}`);
-    throw new Error('Impossible de ranger la feuille Évaluations selon les en-têtes.');
-  }
-}
-
-function lancerRangementEvaluations() {
-  Logger.log('[lancerRangementEvaluations] Démarrage du rangement des évaluations.');
-  try {
-    const resultat = rangerFeuilleEvaluationsSelonEntetes();
-    Logger.log(`[lancerRangementEvaluations] Terminé : ${JSON.stringify(resultat)}`);
-    return resultat;
-  } catch (error) {
-    Logger.log(`[lancerRangementEvaluations] Erreur : ${error}`);
-    throw new Error('Impossible de lancer le rangement des évaluations.');
-  }
-}
-
-function lancerMiseAJourEvaluations() {
-  Logger.log('[lancerMiseAJourEvaluations] Démarrage de la mise à jour des évaluations.');
-  try {
-    const resultat = mettreAJourFeuilleEvaluations_();
-    Logger.log(`[lancerMiseAJourEvaluations] Terminé avec succès : ${JSON.stringify(resultat)}`);
-    return resultat;
-  } catch (error) {
-    Logger.log(`[lancerMiseAJourEvaluations] Erreur lors de la mise à jour : ${error}`);
-    throw new Error('Impossible de lancer la mise à jour des évaluations.');
-  }
-}
-
-function mettreAJourCoutsRecompenses() {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const sheet = ss.getSheetByName('Récompenses');
-    if (!sheet) {
-      Logger.log('[mettreAJourCoutsRecompenses] Feuille "Récompenses" introuvable.');
-      throw new Error('Feuille "Récompenses" introuvable.');
-    }
-
-    const data = sheet.getDataRange().getValues();
-    if (data.length < 2) {
-      Logger.log('[mettreAJourCoutsRecompenses] Aucune récompense à normaliser.');
-      return { success: true, message: 'Aucune récompense à mettre à jour.' };
-    }
-
-    const headers = data[0].map(value => String(value || '').trim());
-    const costIndex = headers.indexOf('Coût');
-    if (costIndex === -1) {
-      Logger.log('[mettreAJourCoutsRecompenses] Colonne "Coût" introuvable.');
-      throw new Error('Colonne "Coût" introuvable.');
-    }
-
-    const updated = data.slice(1).map((row, idx) => {
-      const rawCost = row[costIndex];
-      const cost = Number(rawCost);
-      if (Number.isNaN(cost) || cost < 0) {
-        Logger.log(`[mettreAJourCoutsRecompenses] Coût invalide ligne ${idx + 2} (${rawCost}), remis à 0.`);
-        row[costIndex] = 0;
+      if (existingHeaders.length === 0) {
+        // Feuille vide, ecrire tous les en-tetes
+        sheet.getRange(1, 1, 1, schema.headers.length).setValues([schema.headers]);
+        Logger.log(`[sync] En-tetes initialises pour "${nomFeuille}".`);
+        resultats.push({ feuille: nomFeuille, action: 'headers_init' });
       } else {
-        row[costIndex] = Math.round(cost);
+        // Verifier les en-tetes manquants
+        const existingNormalized = new Set(existingHeaders.map(h => normaliserTexte_(h)));
+        let colIndex = existingHeaders.length + 1;
+
+        schema.headers.forEach(header => {
+          if (!existingNormalized.has(normaliserTexte_(header))) {
+            sheet.getRange(1, colIndex).setValue(header);
+            Logger.log(`[sync] En-tete "${header}" ajoute a "${nomFeuille}" (col ${colIndex}).`);
+            colIndex++;
+          }
+        });
       }
-      return row;
-    });
 
-    sheet.getRange(2, 1, updated.length, data[0].length).setValues(updated);
-    Logger.log('[mettreAJourCoutsRecompenses] Coûts normalisés et mis à jour.');
-    return { success: true, message: 'Coûts des récompenses mis à jour.' };
-  } catch (error) {
-    Logger.log(`[mettreAJourCoutsRecompenses] Erreur : ${error}`);
-    throw new Error('Impossible de mettre à jour les coûts des récompenses.');
-  }
-}
-
-function normaliserCategorieTache_(categorie) {
-  const normalized = normaliserTexte_(categorie);
-  if (!normalized) {
-    return TASK_CATEGORY_KEYS.autres;
-  }
-  if (normalized.includes('corvee') || normalized.includes('travaux')) {
-    return TASK_CATEGORY_KEYS.corvees;
-  }
-  if (normalized.includes('comportement')) {
-    return TASK_CATEGORY_KEYS.comportement;
-  }
-  if (normalized.includes('rituel')) {
-    return TASK_CATEGORY_KEYS.rituels;
-  }
-  return TASK_CATEGORY_KEYS.autres;
-}
-
-function normaliserJoursTache_(rawValue) {
-  if (!rawValue) {
-    return null;
-  }
-  const value = String(rawValue).toLowerCase().trim();
-  if (!value) {
-    return null;
-  }
-
-  if (['tous', 'toute', 'toutes', 'toute la semaine', 'toute-semaine', 'toute_semaine', 'touslesjours', 'tous-les-jours', 'tous les jours', '7/7'].includes(value)) {
-    return new Set([1, 2, 3, 4, 5, 6, 7]);
-  }
-
-  if (['week-end', 'weekend', 'week end', 'weekends'].includes(value)) {
-    return new Set([6, 7]);
-  }
-
-  if (['lun-ven', 'lundi-vendredi', 'semaine', 'en semaine'].includes(value)) {
-    return new Set([1, 2, 3, 4, 5]);
-  }
-
-  const separators = /[,;/\n]+/;
-  const parts = value.split(separators).map(part => part.trim()).filter(Boolean);
-  const dayMap = {
-    lun: 1,
-    lundi: 1,
-    mar: 2,
-    mardi: 2,
-    mer: 3,
-    mercredi: 3,
-    jeu: 4,
-    jeudi: 4,
-    ven: 5,
-    vendredi: 5,
-    sam: 6,
-    samedi: 6,
-    dim: 7,
-    dimanche: 7,
-    '1': 1,
-    '2': 2,
-    '3': 3,
-    '4': 4,
-    '5': 5,
-    '6': 6,
-    '7': 7
-  };
-
-  const daySet = new Set();
-  parts.forEach(part => {
-    const normalized = part.replace(/\s+/g, '');
-    if (normalized.includes('-')) {
-      const [startRaw, endRaw] = normalized.split('-').map(token => token.trim());
-      const start = dayMap[startRaw];
-      const end = dayMap[endRaw];
-      if (start && end) {
-        if (start <= end) {
-          for (let day = start; day <= end; day++) {
-            daySet.add(day);
-          }
-        } else {
-          for (let day = start; day <= 7; day++) {
-            daySet.add(day);
-          }
-          for (let day = 1; day <= end; day++) {
-            daySet.add(day);
-          }
-        }
+      // Synchroniser les colonnes de taches pour Evaluations
+      if (nomFeuille === 'Evaluations' && schema.dynamic) {
+        synchroniserColonnesTaches_(sheet);
       }
-      return;
-    }
 
-    const mapped = dayMap[normalized];
-    if (mapped) {
-      daySet.add(mapped);
+    } catch (error) {
+      Logger.log(`[sync] Erreur pour "${nomFeuille}": ${error}`);
+      resultats.push({ feuille: nomFeuille, action: 'erreur', message: error.toString() });
     }
   });
 
-  return daySet.size > 0 ? daySet : null;
+  return resultats;
 }
 
-function isTacheDisponibleAujourdHui_(rawValue, taskId, rowIndex) {
-  if (!rawValue) {
-    Logger.log(`[isTacheDisponibleAujourdHui] Tâche ${taskId} sans règle jour (ligne ${rowIndex + 2}), disponible par défaut.`);
-    return { available: true, reason: 'aucune_regle' };
-  }
+function synchroniserColonnesTaches_(sheet) {
+  const taches = getTachesDefinitions_();
+  if (taches.length === 0) return;
 
-  const days = normaliserJoursTache_(rawValue);
-  if (!days) {
-    Logger.log(`[isTacheDisponibleAujourdHui] Règle jours invalide pour ${taskId} (ligne ${rowIndex + 2}) : "${rawValue}". Tâche conservée par défaut.`);
-    return { available: true, reason: 'regle_invalide' };
-  }
+  const lastCol = sheet.getLastColumn();
+  const headers = lastCol > 0
+    ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim())
+    : [];
+  const headersNormalized = new Set(headers.map(h => normaliserTexte_(h)));
 
-  const todayIndex = getParisDayIndex(new Date());
-  const available = days.has(todayIndex);
-  Logger.log(`[isTacheDisponibleAujourdHui] Tâche ${taskId} (ligne ${rowIndex + 2}) ${available ? 'disponible' : 'indisponible'} aujourd'hui (index=${todayIndex}).`);
-  return { available, reason: available ? 'jour_ok' : 'jour_ko' };
+  let colIndex = headers.length + 1;
+  taches.forEach(tache => {
+    const header = tache.id;
+    if (!headersNormalized.has(normaliserTexte_(header))) {
+      sheet.getRange(1, colIndex).setValue(header);
+      Logger.log(`[sync] Colonne tache "${header}" ajoutee a Evaluations (col ${colIndex}).`);
+      colIndex++;
+    }
+  });
 }
 
-// ==================================================
-// DIAGNOSTIC DATES (PARIS)
-// ==================================================
-function diagnostiquerDatesEvaluation(personne) {
-  try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const sheet = ss.getSheetByName('Évaluations');
-    const data = sheet.getDataRange().getValues().slice(1);
-    const personneKey = String(personne || '').trim();
-    const now = new Date();
-
-    const diagnostic = {
-      personne: personneKey,
-      timezoneScript: Session.getScriptTimeZone(),
-      timezoneSpreadsheet: ss.getSpreadsheetTimeZone(),
-      nowIso: now.toISOString(),
-      nowParis: Utilities.formatDate(now, PARIS_TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
-      todayKeyParis: getParisDateKey(now),
-      lastEvaluations: []
-    };
-
-    const evals = data.filter(row => String(row[3] || '').trim() === personneKey);
-    const sorted = evals.sort((a, b) => {
-      const dateA = parseSheetDate(a[1], 'Évaluations.Date');
-      const dateB = parseSheetDate(b[1], 'Évaluations.Date');
-      const timeA = dateA ? dateA.getTime() : 0;
-      const timeB = dateB ? dateB.getTime() : 0;
-      return timeB - timeA;
-    });
-
-    diagnostic.lastEvaluations = sorted.slice(0, 5).map(row => {
-      const parsedDate = parseSheetDate(row[1], 'Évaluations.Date');
-      return {
-        id: row[0],
-        rawDate: row[1],
-        parsedIso: parsedDate ? parsedDate.toISOString() : null,
-        parisKey: parsedDate ? getParisDateKey(parsedDate) : null,
-        personne: String(row[3] || '').trim()
-      };
-    });
-
-    Logger.log(`[diagnostiquerDatesEvaluation] Diagnostic Paris: ${JSON.stringify(diagnostic)}`);
-    return diagnostic;
-  } catch (error) {
-    Logger.log(`[diagnostiquerDatesEvaluation] Erreur diagnostic pour ${personne} : ${error}`);
-    throw new Error('Impossible de diagnostiquer les dates d’évaluation (Paris).');
+function getFeuilleAvecHeaders_(nomFeuille) {
+  const ss = getSpreadsheet_();
+  const sheet = ss.getSheetByName(nomFeuille);
+  if (!sheet) {
+    throw new Error(`Feuille "${nomFeuille}" introuvable.`);
   }
+
+  const lastCol = sheet.getLastColumn();
+  if (lastCol === 0) {
+    return { sheet, headers: [], rows: [], headerIndex: {} };
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0].map(h => String(h || '').trim());
+  const headerIndex = headers.reduce((acc, h, i) => { acc[h] = i; return acc; }, {});
+  const rows = data.slice(1);
+
+  return { sheet, headers, rows, headerIndex };
 }
 
 // ==================================================
 // WEB APP
 // ==================================================
+
 function doGet(e) {
+  // Synchroniser les feuilles a chaque ouverture
+  try {
+    synchroniserFeuilles_();
+  } catch (error) {
+    Logger.log(`[doGet] Erreur sync: ${error}`);
+  }
+
   const template = HtmlService.createTemplateFromFile('Index');
   return template.evaluate()
-    .setTitle('🌟 Mes Étoiles')
+    .setTitle('Mes Etoiles')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no');
 }
@@ -1097,569 +357,351 @@ function include(filename) {
 }
 
 // ==================================================
-// RÉCUPÉRER LES PERSONNES
+// PERSONNES
 // ==================================================
+
 function getPersonnes() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Personnes');
-  const data = sheet.getDataRange().getValues().slice(1);
-  
-  return data.map(row => ({
-    nom: row[0],
-    avatar: row[1],
-    couleur: row[2],
-    age: row[3]
-  }));
+  const { rows } = getFeuilleAvecHeaders_('Personnes');
+  return rows
+    .filter(row => row[0])
+    .map(row => ({
+      nom: String(row[0] || '').trim(),
+      avatar: String(row[1] || '').trim() || '👤',
+      couleur: String(row[2] || '').trim() || '#6C5CE7',
+      age: Number(row[3]) || 0
+    }));
 }
 
 // ==================================================
-// RÉCUPÉRER LES ÉMOTIONS
+// TACHES
 // ==================================================
-function getEmotions() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Émotions');
-  const data = sheet.getDataRange().getValues().slice(1);
-  
-  return data.map(row => ({
-    id: row[0],
-    nom: row[1],
-    emoji: row[2],
-    couleur: row[3],
-    description: row[4],
-    categorie: row[5]
-  }));
-}
-
-// ==================================================
-// RÉCUPÉRER LES SOURCES D'ÉMOTIONS
-// ==================================================
-function getSources() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Sources_Émotions');
-  const data = sheet.getDataRange().getValues().slice(1);
-  
-  return data.map(row => ({
-    id: row[0],
-    nom: row[1],
-    emoji: row[2],
-    description: row[3]
-  }));
-}
-
-// ==================================================
-// RÉCUPÉRER LES TÂCHES ASSIGNÉES
-// ==================================================
-function getTachesFeuille_() {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Tâches');
-  if (!sheet) {
-    Logger.log('[getTachesFeuille] Feuille Tâches introuvable.');
-    throw new Error('Feuille Tâches introuvable.');
-  }
-
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) {
-    Logger.log('[getTachesFeuille] Feuille Tâches vide.');
-    return { headers: [], rows: [], indexes: {} };
-  }
-
-  const headers = data[0].map(value => String(value || '').trim());
-  const indexes = {
-    id: headers.indexOf('ID'),
-    categorie: headers.indexOf('Catégorie'),
-    nom: headers.indexOf('Nom'),
-    emoji: headers.indexOf('Emoji'),
-    description: headers.indexOf('Description'),
-    pointsMax: headers.indexOf('PointsMax'),
-    ordre: headers.indexOf('Ordre'),
-    personne: headers.indexOf('Personne'),
-    personnes: headers.indexOf('Personnes'),
-    jours: headers.indexOf('Jours')
-  };
-
-  return { headers, rows: data.slice(1), indexes };
-}
 
 function getTachesDefinitions_() {
   try {
-    const { rows, indexes } = getTachesFeuille_();
-    if (indexes.id === -1) {
-      Logger.log('[getTachesDefinitions] Colonne ID manquante dans la feuille Tâches.');
-      return [];
-    }
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Taches');
+    const idIdx = headerIndex['ID'] ?? 0;
+    const catIdx = headerIndex['Categorie'] ?? 1;
+    const nomIdx = headerIndex['Nom'] ?? 2;
+    const emojiIdx = headerIndex['Emoji'] ?? 3;
+    const descIdx = headerIndex['Description'] ?? 4;
+    const maxIdx = headerIndex['PointsMax'] ?? 5;
+    const ordreIdx = headerIndex['Ordre'] ?? 6;
+    const persIdx = headerIndex['Personnes'] ?? 7;
+    const joursIdx = headerIndex['Jours'] ?? 8;
 
-    const tasks = [];
-    rows.forEach((row, rowIndex) => {
-      const rawId = String(row[indexes.id] || '').trim();
-      if (!rawId) {
-        Logger.log(`[getTachesDefinitions] ID manquant, ligne ${rowIndex + 2} ignorée.`);
-        return;
-      }
-      const categorie = indexes.categorie !== -1 ? String(row[indexes.categorie] || '').trim() : '';
-      const nom = indexes.nom !== -1 ? String(row[indexes.nom] || '').trim() : rawId;
-      const emoji = indexes.emoji !== -1 ? String(row[indexes.emoji] || '').trim() : '';
-      const description = indexes.description !== -1 ? String(row[indexes.description] || '').trim() : '';
-      const pointsMax = indexes.pointsMax !== -1 ? Number(row[indexes.pointsMax]) : 1;
-      const ordre = indexes.ordre !== -1 ? Number(row[indexes.ordre]) : null;
-
-      tasks.push({
-        id: rawId,
-        categorie,
-        categorieNormalisee: normaliserCategorieTache_(categorie),
-        nom,
-        emoji,
-        description,
-        pointsMax: Number.isNaN(pointsMax) ? 1 : pointsMax,
-        ordre: Number.isNaN(ordre) ? null : ordre
-      });
-    });
-
-    return tasks;
+    return rows
+      .filter(row => row[idIdx])
+      .map(row => ({
+        id: String(row[idIdx] || '').trim(),
+        categorie: normaliserCategorie_(String(row[catIdx] || '').trim()),
+        nom: String(row[nomIdx] || '').trim() || String(row[idIdx] || '').trim(),
+        emoji: String(row[emojiIdx] || '').trim() || '✨',
+        description: String(row[descIdx] || '').trim(),
+        pointsMax: Number(row[maxIdx]) || SCORES.TASK_MAX,
+        ordre: Number(row[ordreIdx]) || 999,
+        personnes: String(row[persIdx] || '').trim(),
+        jours: String(row[joursIdx] || '').trim()
+      }))
+      .sort((a, b) => a.ordre - b.ordre);
   } catch (error) {
-    Logger.log(`[getTachesDefinitions] Erreur lors de la lecture des tâches : ${error}`);
+    Logger.log(`[getTachesDefinitions] Erreur: ${error}`);
     return [];
   }
 }
 
-function getTachesPourPersonne(personne) {
-  try {
-    const result = getTachesAssigneesPourPersonne_(personne);
-    const definitions = getTachesDefinitions_();
-    const definitionsById = new Map(definitions.map(task => [task.id, task]));
-    const tasks = result.taskIds
-      .map(taskId => definitionsById.get(taskId))
-      .filter(Boolean);
-    const allTaskIds = definitions.length > 0 ? definitions.map(task => task.id) : BASE_TASK_IDS;
-    Logger.log(`[getTachesPourPersonne] Tâches filtrées pour ${personne} : ${JSON.stringify(result.taskIds)}`);
-    return {
-      personne: String(personne || '').trim(),
-      taskIds: result.taskIds,
-      allowEmpty: result.allowEmpty,
-      reason: result.reason,
-      allTaskIds,
-      tasks
-    };
-  } catch (error) {
-    Logger.log(`[getTachesPourPersonne] Erreur pour ${personne} : ${error}`);
-    throw new Error('Impossible de charger les tâches attribuées.');
-  }
+function normaliserCategorie_(categorie) {
+  const n = normaliserTexte_(categorie);
+  if (n.includes('corvee') || n.includes('travaux')) return 'corvees';
+  if (n.includes('comportement')) return 'comportement';
+  if (n.includes('rituel')) return 'rituels';
+  return 'autres';
 }
 
-function getTachesAssigneesPourPersonne_(personne) {
-  const personneKey = String(personne || '').trim();
-  if (!personneKey) {
-    Logger.log('[getTachesAssigneesPourPersonne] Personne non renseignée, retour de la liste par défaut.');
-    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'personne_absente' };
+function parseJours_(rawValue) {
+  if (!rawValue) return null;
+  const value = String(rawValue).toLowerCase().trim();
+  if (!value) return null;
+
+  // Valeurs speciales
+  if (['tous', 'toute', 'toutes', 'toute la semaine', '7/7', 'tous les jours'].includes(value)) {
+    return new Set([1, 2, 3, 4, 5, 6, 7]);
+  }
+  if (['week-end', 'weekend'].includes(value)) {
+    return new Set([6, 7]);
+  }
+  if (['semaine', 'lun-ven', 'en semaine'].includes(value)) {
+    return new Set([1, 2, 3, 4, 5]);
   }
 
-  let rows = [];
-  let indexes = {};
-  try {
-    const feuille = getTachesFeuille_();
-    rows = feuille.rows;
-    indexes = feuille.indexes;
-  } catch (error) {
-    Logger.log(`[getTachesAssigneesPourPersonne] Feuille Tâches introuvable, retour de la liste par défaut. Erreur=${error}`);
-    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'feuille_absente' };
-  }
-
-  if (rows.length === 0) {
-    Logger.log('[getTachesAssigneesPourPersonne] Feuille Tâches vide, retour de la liste par défaut.');
-    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'feuille_vide' };
-  }
-
-  if (indexes.id === -1) {
-    Logger.log('[getTachesAssigneesPourPersonne] Colonne ID manquante, retour de la liste par défaut.');
-    return { taskIds: [...BASE_TASK_IDS], allowEmpty: false, reason: 'id_manquant' };
-  }
-
-  const assignedTasks = [];
-  const addTask = taskId => {
-    if (!assignedTasks.includes(taskId)) {
-      assignedTasks.push(taskId);
-    }
-  };
-
-  rows.forEach((row, rowIndex) => {
-    const rawId = String(row[indexes.id] || '').trim();
-    if (!rawId) {
-      Logger.log(`[getTachesAssigneesPourPersonne] ID manquant, ligne ${rowIndex + 2} ignorée.`);
-      return;
-    }
-
-    const taskId = rawId;
-    if (indexes.jours !== -1) {
-      const rawJours = row[indexes.jours];
-      const availability = isTacheDisponibleAujourdHui_(rawJours, taskId, rowIndex);
-      if (!availability.available) {
-        Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} ignorée pour ${personneKey} (ligne ${rowIndex + 2}) - règle jours.`);
-        return;
+  // Parser les jours individuels
+  const daySet = new Set();
+  value.split(/[,;/\n]+/).forEach(part => {
+    const normalized = part.trim().replace(/\s+/g, '');
+    if (normalized.includes('-')) {
+      const [startRaw, endRaw] = normalized.split('-');
+      const start = JOURS_MAP[startRaw];
+      const end = JOURS_MAP[endRaw];
+      if (start && end) {
+        for (let d = start; d <= (end >= start ? end : 7); d++) daySet.add(d);
+        if (end < start) for (let d = 1; d <= end; d++) daySet.add(d);
       }
-    }
-    const targetIndex = indexes.personne !== -1 ? indexes.personne : indexes.personnes;
-    if (targetIndex === -1) {
-      addTask(taskId);
-      return;
-    }
-
-    const rawAssignees = String(row[targetIndex] || '').trim();
-    if (!rawAssignees) {
-      addTask(taskId);
-      return;
-    }
-
-    const assignees = rawAssignees
-      .split(/[,;\n]+/)
-      .map(value => value.trim())
-      .filter(Boolean);
-
-    if (assignees.length === 0) {
-      addTask(taskId);
-      return;
-    }
-
-    if (assignees.includes(personneKey)) {
-      addTask(taskId);
-      Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} assignée (ligne ${rowIndex + 2}).`);
     } else {
-      Logger.log(`[getTachesAssigneesPourPersonne] Tâche ${taskId} ignorée pour ${personneKey} (ligne ${rowIndex + 2}).`);
+      const mapped = JOURS_MAP[normalized];
+      if (mapped) daySet.add(mapped);
     }
   });
 
-  const reason = assignedTasks.length > 0 ? 'filtrage_ok' : 'aucune_tache';
-  Logger.log(`[getTachesAssigneesPourPersonne] Résultat ${reason} pour ${personneKey} : ${JSON.stringify(assignedTasks)}`);
-  return { taskIds: assignedTasks, allowEmpty: true, reason };
+  return daySet.size > 0 ? daySet : null;
+}
+
+function estTacheDisponibleAujourdhui_(tache) {
+  if (!tache.jours) return true;
+  const jours = parseJours_(tache.jours);
+  if (!jours) return true;
+  return jours.has(getParisDayIndex_(new Date()));
+}
+
+function estTacheAssigneePourPersonne_(tache, personne) {
+  if (!tache.personnes) return true;
+  const assignees = tache.personnes.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+  if (assignees.length === 0) return true;
+  return assignees.includes(personne);
+}
+
+function getTachesPourPersonne(personne) {
+  const personneKey = String(personne || '').trim();
+  const taches = getTachesDefinitions_();
+
+  const tachesFiltrees = taches.filter(t =>
+    estTacheAssigneePourPersonne_(t, personneKey) &&
+    estTacheDisponibleAujourdhui_(t)
+  );
+
+  return {
+    personne: personneKey,
+    tasks: tachesFiltrees,
+    taskIds: tachesFiltrees.map(t => t.id)
+  };
 }
 
 // ==================================================
-// VÉRIFIER SI ÉVALUÉ AUJOURD'HUI
+// EVALUATIONS
 // ==================================================
+
 function hasEvaluatedToday(personne) {
   try {
-    const evalMeta = getEvaluationsFeuille_();
-    const data = evalMeta.rows;
-    const dateIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'date', 1, 'Date');
-    const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
-    
-    const todayKey = getParisDateKey(new Date());
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Evaluations');
+    const dateIdx = headerIndex['Date'] ?? 1;
+    const persIdx = headerIndex['Personne'] ?? 3;
+    const todayKey = getParisDateKey_(new Date());
     const personneKey = String(personne || '').trim();
-    Logger.log(`[hasEvaluatedToday] Vérification Paris pour ${personneKey} (date=${todayKey}).`);
-    
-    return data.some(row => {
-      const rowKey = getParisDateKeyFromValue(row[dateIndex], 'Évaluations.Date');
-      const rowPersonne = String(row[personneIndex] || '').trim();
-      if (!rowKey) {
-        return false;
-      }
-      return rowPersonne === personneKey && rowKey === todayKey;
+
+    return rows.some(row => {
+      const rowDate = parseDate_(row[dateIdx]);
+      if (!rowDate) return false;
+      const rowKey = getParisDateKey_(rowDate);
+      return String(row[persIdx] || '').trim() === personneKey && rowKey === todayKey;
     });
   } catch (error) {
-    Logger.log(`[hasEvaluatedToday] Erreur lors de la vérification Paris pour ${personne} : ${error}`);
-    throw new Error('Impossible de vérifier l’évaluation du jour (timezone Paris).');
+    Logger.log(`[hasEvaluatedToday] Erreur: ${error}`);
+    return false;
   }
 }
 
-// ==================================================
-// SOUMETTRE UNE ÉVALUATION
-// ==================================================
 function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
   try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    const sheet = ss.getSheetByName('Évaluations');
-    if (!sheet) {
-      Logger.log('[submitEvaluation] Feuille "Évaluations" introuvable, envoi annulé.');
-      throw new Error('Feuille "Évaluations" introuvable.');
-    }
-    
+    // Verifier si deja evalue
     if (hasEvaluatedToday(personne)) {
-      Logger.log(`[submitEvaluation] Évaluation déjà faite aujourd'hui (Paris) pour ${personne}.`);
-      return { success: false, message: 'Tu as déjà fait ton évaluation aujourd\'hui ! 😊' };
+      return { success: false, message: 'Tu as deja fait ton evaluation aujourd\'hui !' };
     }
 
+    // Verifier les sources pour chaque emotion
     const emotionPairs = [
-      { emotion: emotions.emotion1, source: emotions.source1, label: 'emotion1' },
-      { emotion: emotions.emotion2, source: emotions.source2, label: 'emotion2' },
-      { emotion: emotions.emotion3, source: emotions.source3, label: 'emotion3' }
+      { emotion: emotions.emotion1, source: emotions.source1 },
+      { emotion: emotions.emotion2, source: emotions.source2 },
+      { emotion: emotions.emotion3, source: emotions.source3 }
     ];
-    const missingSources = emotionPairs
-      .filter(pair => pair.emotion && !pair.source)
-      .map(pair => pair.label);
+    const missingSources = emotionPairs.filter(p => p.emotion && !p.source);
     if (missingSources.length > 0) {
-      Logger.log(`[submitEvaluation] Sources manquantes pour ${personne} : ${missingSources.join(', ')}`);
-      return { success: false, message: 'Choisis une cause pour chaque émotion, s’il te plaît.' };
+      return { success: false, message: 'Choisis une cause pour chaque emotion.' };
     }
-    
-    const lastRow = sheet.getLastRow();
-    const newId = 'E' + String(lastRow).padStart(4, '0');
-    const now = new Date();
 
-    const MAX_COMMENTAIRE_LENGTH = 400;
-    const commentaireBrut = String(commentaire || '').trim();
-    let commentaireSafe = commentaireBrut;
-    if (!commentaireSafe) {
-      Logger.log(`[submitEvaluation] Commentaire vide pour ${personne}.`);
-    } else if (commentaireSafe.length > MAX_COMMENTAIRE_LENGTH) {
-      Logger.log(`[submitEvaluation] Commentaire trop long pour ${personne} (longueur=${commentaireSafe.length}, max=${MAX_COMMENTAIRE_LENGTH}). Tronquage appliqué.`);
-      commentaireSafe = commentaireSafe.slice(0, MAX_COMMENTAIRE_LENGTH);
-    }
-    
-    const assignedResult = getTachesAssigneesPourPersonne_(personne);
-    const assignedTasks = assignedResult.taskIds;
-    const assignedSet = new Set(assignedTasks);
-    const taskDefinitions = getTachesDefinitions_();
-    const definitionsById = new Map(taskDefinitions.map(task => [task.id, task]));
+    // Recuperer les taches assignees
+    const { tasks: assignedTasks, taskIds } = getTachesPourPersonne(personne);
+    const assignedSet = new Set(taskIds);
 
-    const safeTaskValue = (taskKey) => {
-      const value = Number(taches && taches[taskKey]);
-      if (!assignedSet.has(taskKey)) {
-        return 0;
-      }
-      if (Number.isNaN(value)) {
-        Logger.log(`[submitEvaluation] Valeur de tâche invalide pour ${taskKey} (${personne}). Valeur remise à 0.`);
-        return 0;
-      }
-      if (!ALLOWED_TASK_SCORES.includes(value)) {
-        Logger.log(`[submitEvaluation] Valeur de tâche hors plage pour ${taskKey} (${personne}) : ${value}. Valeur remise à 0.`);
-        return 0;
-      }
+    // Valider et calculer les scores
+    const safeTaskValue = (taskId) => {
+      if (!assignedSet.has(taskId)) return 0;
+      const value = Number(taches && taches[taskId]);
+      if (Number.isNaN(value) || !SCORES.TASK_ALLOWED.includes(value)) return 0;
       return value;
     };
 
-    const totalsByCategory = {
-      corvees: 0,
-      comportement: 0,
-      rituels: 0,
-      autres: 0
-    };
-    const dynamicTasks = {};
+    const gestionValue = SCORES.GESTION_ALLOWED.includes(emotions.gestion) ? emotions.gestion : 0;
 
-    assignedTasks.forEach(taskId => {
-      const value = safeTaskValue(taskId);
-      const definition = definitionsById.get(taskId);
-      const categorie = definition ? definition.categorieNormalisee : TASK_CATEGORY_KEYS.autres;
-      if (!definition) {
-        Logger.log(`[submitEvaluation] Définition de tâche introuvable pour ${taskId}, catégorie par défaut appliquée.`);
-      }
-      totalsByCategory[categorie] = (totalsByCategory[categorie] || 0) + value;
-      if (!BASE_TASK_IDS.includes(taskId)) {
-        dynamicTasks[taskId] = value;
-      }
+    // Calculer le total en convertissant etoiles → points
+    // Formule: 0 etoiles=-1pt, 1 etoile=0pt, 2 etoiles=1pt, 3 etoiles=2pts
+    let totalJour = gestionValue;
+    const taskScores = {};
+    taskIds.forEach(taskId => {
+      const stars = safeTaskValue(taskId);
+      taskScores[taskId] = stars; // On stocke les etoiles
+      const points = SCORES.TASK_TO_POINTS[String(stars)] ?? (stars - 1);
+      totalJour += points;
     });
 
-    // Calculs totaux
-    const totalCorvees = totalsByCategory.corvees;
-    const totalComportement = totalsByCategory.comportement;
-    const totalRituels = totalsByCategory.rituels;
-    const totalEmotions = emotions.gestion;
-    const totalJour = totalCorvees + totalComportement + totalRituels + totalEmotions;
+    // Preparer la ligne
+    const { sheet, headers, headerIndex } = getFeuilleAvecHeaders_('Evaluations');
+    const now = new Date();
+    const newId = 'E' + String(sheet.getLastRow()).padStart(4, '0');
 
-    Logger.log(`[submitEvaluation] Totaux calculés pour ${personne} : corvées=${totalCorvees}, comportement=${totalComportement}, rituels=${totalRituels}, émotions=${totalEmotions}, totalJour=${totalJour}.`);
-    
-    Logger.log(`[submitEvaluation] Ajout évaluation ${newId} pour ${personne} (Paris=${getParisDateKey(now)}).`);
+    const commentaireSafe = String(commentaire || '').trim().slice(0, 400);
 
-    // Message selon score
-    const baseTaskCount = assignedTasks.length;
-    const maxPoints = baseTaskCount * MAX_TASK_SCORE + MAX_GESTION_SCORE;
-    const percent = Math.max(0, Math.round((totalJour / maxPoints) * 100));
-
-    let message, stars;
-    if (percent >= 90) {
-      message = "INCROYABLE ! Tu es une vraie STAR ! 🌟";
-      stars = 5;
-    } else if (percent >= 75) {
-      message = "SUPER journée ! Bravo champion ! 🎉";
-      stars = 4;
-    } else if (percent >= 60) {
-      message = "Bien joué ! Continue comme ça ! 👍";
-      stars = 3;
-    } else if (percent >= 40) {
-      message = "Pas mal ! Tu peux faire encore mieux ! 💪";
-      stars = 2;
-    } else {
-      message = "Demain sera meilleur ! On y croit ! 🌈";
-      stars = 1;
-    }
-
-    assurerColonnesEvaluations_(sheet, EVALUATION_REQUIRED_HEADERS);
-    const syncResult = synchroniserColonnesTachesEvaluations_();
-    const preparedHeaders = syncResult.headers;
-    const headerIndex = syncResult.headerIndex;
-    const dynamicPayload = Object.keys(dynamicTasks).length > 0 ? JSON.stringify(dynamicTasks) : '';
-
-    const rowValues = new Array(preparedHeaders.length).fill('');
-    const setValue = (header, value, aliases = []) => {
-      let idx = headerIndex[header];
-      if (typeof idx !== 'number') {
-        const candidates = [header].concat(aliases);
-        const normalizedCandidates = candidates.map(candidate => normaliserCleEntete_(candidate));
-        idx = preparedHeaders.findIndex(h => normalizedCandidates.includes(normaliserCleEntete_(h)));
-      }
-      if (typeof idx !== 'number' || idx === -1) {
-        Logger.log(`[submitEvaluation] Colonne "${header}" introuvable (aliases=${JSON.stringify(aliases)}), valeur ignorée.`);
-        return;
-      }
-      rowValues[idx] = value;
+    // Construire la ligne
+    const rowValues = new Array(headers.length).fill('');
+    const setValue = (header, value) => {
+      const idx = headerIndex[header];
+      if (typeof idx === 'number') rowValues[idx] = value;
     };
 
     setValue('ID', newId);
     setValue('Date', now);
     setValue('Heure', Utilities.formatDate(now, PARIS_TIMEZONE, 'HH:mm'));
     setValue('Personne', personne);
-    setValue('Emotion1', emotions.emotion1);
+    setValue('Emotion1', emotions.emotion1 || '');
     setValue('Emotion2', emotions.emotion2 || '');
     setValue('Emotion3', emotions.emotion3 || '');
     setValue('Source1', emotions.source1 || '');
     setValue('Source2', emotions.source2 || '');
     setValue('Source3', emotions.source3 || '');
-    setValue('GestionEmotion', emotions.gestion);
-    setValue('TotalCorvees', totalCorvees);
-    setValue('TotalComportement', totalComportement);
-    setValue('TotalRituels', totalRituels);
-    setValue('TotalEmotions', totalEmotions);
+    setValue('GestionEmotion', gestionValue);
     setValue('TotalJour', totalJour);
-    setValue('Humeur', humeur);
+    setValue('Humeur', humeur || '');
     setValue('Commentaire', commentaireSafe);
-    setValue('Taches_Dynamiques', dynamicPayload, ['Tâches Dynamiques', 'Taches Dynamiques']);
 
-    const appendedRowIndex = sheet.getLastRow() + 1;
-    sheet.getRange(appendedRowIndex, 1, 1, preparedHeaders.length).setValues([rowValues]);
-    Logger.log(`[submitEvaluation] Ligne ${appendedRowIndex} ajoutée avec colonnes dynamiques.`);
-    appliquerValeursTachesDynamiques_(
-      sheet,
-      appendedRowIndex,
-      assignedTasks,
-      safeTaskValue,
-      definitionsById,
-      syncResult.headerIndex
-    );
-    
-    // Enregistrer dans historique émotions
-    saveEmotionHistory(personne, emotions);
-    
-    // Vérifier badges
-    const newBadges = checkBadges(personne);
-    
+    // Ajouter les scores de chaque tache
+    Object.entries(taskScores).forEach(([taskId, score]) => {
+      setValue(taskId, score);
+    });
+
+    // Ecrire la ligne
+    sheet.appendRow(rowValues);
+    Logger.log(`[submitEvaluation] Evaluation ${newId} ajoutee pour ${personne}, total=${totalJour}.`);
+
+    // Mettre a jour les points dans Script Properties
+    const newTotalPoints = addPointsProperty_(personne, totalJour);
+    Logger.log(`[submitEvaluation] Points mis a jour: ${newTotalPoints} pts`);
+
+    // Verifier les badges
+    const newBadges = checkBadges_(personne);
+
+    // Calculer le pourcentage et le message
+    // Max = (nb taches * 2 points) + 1 point gestion
+    const maxPoints = taskIds.length * SCORES.TASK_POINTS_MAX + SCORES.GESTION_MAX;
+    const percent = maxPoints > 0 ? Math.max(0, Math.round((totalJour / maxPoints) * 100)) : 0;
+
+    let message, stars;
+    if (percent >= 90) { message = 'INCROYABLE ! Tu es une vraie STAR !'; stars = 5; }
+    else if (percent >= 75) { message = 'SUPER journee ! Bravo champion !'; stars = 4; }
+    else if (percent >= 60) { message = 'Bien joue ! Continue comme ca !'; stars = 3; }
+    else if (percent >= 40) { message = 'Pas mal ! Tu peux faire encore mieux !'; stars = 2; }
+    else { message = 'Demain sera meilleur ! On y croit !'; stars = 1; }
+
     return {
       success: true,
-      message: message,
-      totalJour: totalJour,
+      message,
+      totalJour,
       maxJour: maxPoints,
-      percent: percent,
-      stars: stars,
-      newBadges: newBadges,
-      details: {
-        corvees: totalCorvees,
-        comportement: totalComportement,
-        rituels: totalRituels,
-        emotions: totalEmotions
-      }
+      percent,
+      stars,
+      newBadges
     };
+
   } catch (error) {
-    Logger.log(`[submitEvaluation] Erreur lors de l'envoi pour ${personne} : ${error}`);
-    return { success: false, message: 'Erreur lors de l’enregistrement. Réessaie dans un instant.' };
+    Logger.log(`[submitEvaluation] Erreur: ${error}`);
+    return { success: false, message: 'Erreur lors de l\'enregistrement.' };
   }
 }
 
 // ==================================================
-// SAUVEGARDER HISTORIQUE ÉMOTIONS
+// CALCUL DES POINTS
 // ==================================================
-function saveEmotionHistory(personne, emotions) {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Historique_Émotions');
-  
-  sheet.appendRow([
-    new Date(),
-    personne,
-    emotions.emotion1,
-    emotions.emotion2 || '',
-    emotions.emotion3 || '',
-    emotions.source1 || '',
-    emotions.source2 || '',
-    emotions.source3 || '',
-    emotions.gestion,
-    ''
-  ]);
+
+function calculerPoints_(personne) {
+  // Utilise les Script Properties pour performance
+  // Les points sont mis a jour incrementalement lors des evaluations/recompenses
+  const totalPoints = getPointsProperty_(personne);
+  return { totalPoints };
 }
 
 // ==================================================
-// DONNÉES PERSONNE
+// DONNEES PERSONNE
 // ==================================================
+
 function getPersonneData(personne) {
   try {
-    const ss = SpreadsheetApp.openById(SS_ID);
-    
-    // Infos personne
-    const personnesSheet = ss.getSheetByName('Personnes');
-    const personnesData = personnesSheet.getDataRange().getValues().slice(1);
     const personneKey = String(personne || '').trim();
-    const personneInfo = personnesData.find(r => String(r[0] || '').trim() === personneKey);
-    
-    // Évaluations
-    const evalMeta = getEvaluationsFeuille_();
-    const evalData = evalMeta.rows;
-    const evalIndexes = evalMeta.indexes;
-    const dateIndex = getEvaluationColumnIndex_(evalIndexes, 'date', 1, 'Date');
-    const personneIndex = getEvaluationColumnIndex_(evalIndexes, 'personne', 3, 'Personne');
-    const totalJourIndex = getEvaluationColumnIndex_(evalIndexes, 'totalJour', 15, 'TotalJour');
+    const personnes = getPersonnes();
+    const personneInfo = personnes.find(p => p.nom === personneKey);
 
-    // Récompenses demandées (dépenses)
-    const claimsMeta = getRecompensesDemandeesMeta_();
-    if (!claimsMeta.sheet) {
-      Logger.log('[getPersonneData] Feuille "Récompenses_Demandées" introuvable, dépenses ignorées.');
-    }
-    
-    // Semaine en cours (Paris)
-    const todayParis = getParisMidnight(new Date());
-    const weekStart = getMonday(todayParis);
+    // Points
+    const points = calculerPoints_(personneKey);
+
+    // Taches assignees
+    const { tasks: assignedTasks } = getTachesPourPersonne(personneKey);
+    const maxPointsJour = assignedTasks.length * SCORES.TASK_MAX + SCORES.GESTION_MAX;
+
+    // Evaluations de la semaine
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Evaluations');
+    const dateIdx = headerIndex['Date'] ?? 1;
+    const persIdx = headerIndex['Personne'] ?? 3;
+    const totalIdx = headerIndex['TotalJour'] ?? 11;
+    const emo1Idx = headerIndex['Emotion1'] ?? 4;
+    const emo2Idx = headerIndex['Emotion2'] ?? 5;
+    const emo3Idx = headerIndex['Emotion3'] ?? 6;
+    const gestionIdx = headerIndex['GestionEmotion'] ?? 10;
+
+    const todayParis = getParisMidnight_(new Date());
+    const weekStart = getMonday_(todayParis);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 6);
     weekEnd.setHours(23, 59, 59);
 
-    const maxPointsData = getMaxPointsParJour_(personneKey);
-    const maxPointsJour = maxPointsData.maxPoints;
-    
     let weekPoints = 0;
     let weekDays = 0;
-    let dailyScores = [null, null, null, null, null, null, null];
-    
-    const personneEvals = evalData.filter(r => String(r[personneIndex] || '').trim() === personneKey);
+    const dailyScores = [null, null, null, null, null, null, null];
+
+    const personneEvals = rows.filter(r => String(r[persIdx] || '').trim() === personneKey);
 
     personneEvals.forEach(row => {
-      const parsedDate = parseSheetDate(row[dateIndex], 'Évaluations.Date');
-      if (!parsedDate) {
-        return;
-      }
-      const date = getParisMidnight(parsedDate);
+      const parsedDate = parseDate_(row[dateIdx]);
+      if (!parsedDate) return;
+      const date = getParisMidnight_(parsedDate);
       if (date >= weekStart && date <= weekEnd) {
-        const total = Number(row[totalJourIndex] || 0);
+        const total = Number(row[totalIdx]) || 0;
         weekPoints += total;
         weekDays++;
         const dayIndex = date.getDay() === 0 ? 6 : date.getDay() - 1;
         dailyScores[dayIndex] = total;
       }
     });
-    
-    // Streak (Paris)
+
+    // Streak
     let streak = 0;
     const sortedEvals = personneEvals.sort((a, b) => {
-      const dateA = parseSheetDate(a[dateIndex], 'Évaluations.Date');
-      const dateB = parseSheetDate(b[dateIndex], 'Évaluations.Date');
-      const timeA = dateA ? dateA.getTime() : 0;
-      const timeB = dateB ? dateB.getTime() : 0;
-      return timeB - timeA;
+      const dateA = parseDate_(a[dateIdx]);
+      const dateB = parseDate_(b[dateIdx]);
+      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
     });
-    
+
     if (sortedEvals.length > 0) {
-      let checkDate = getParisMidnight(new Date());
-      
-      for (const eval of sortedEvals) {
-        const parsedDate = parseSheetDate(eval[dateIndex], 'Évaluations.Date');
-        if (!parsedDate) {
-          continue;
-        }
-        const evalDate = getParisMidnight(parsedDate);
+      let checkDate = getParisMidnight_(new Date());
+      for (const evalRow of sortedEvals) {
+        const parsedDate = parseDate_(evalRow[dateIdx]);
+        if (!parsedDate) continue;
+        const evalDate = getParisMidnight_(parsedDate);
         const diffDays = Math.floor((checkDate - evalDate) / (1000 * 60 * 60 * 24));
-        
         if (diffDays <= 1) {
           streak++;
           checkDate = new Date(evalDate);
@@ -1669,90 +711,52 @@ function getPersonneData(personne) {
         }
       }
     }
-    
-    // Émotions récentes
-    const emotionSheet = ss.getSheetByName('Historique_Émotions');
-    const emotionData = emotionSheet.getDataRange().getValues().slice(1);
-    const recentEmotions = emotionData
-      .filter(r => String(r[1] || '').trim() === personneKey)
-      .sort((a, b) => {
-        const dateA = parseSheetDate(a[0], 'Historique_Émotions.Date');
-        const dateB = parseSheetDate(b[0], 'Historique_Émotions.Date');
-        const timeA = dateA ? dateA.getTime() : 0;
-        const timeB = dateB ? dateB.getTime() : 0;
-        return timeB - timeA;
-      })
-      .slice(0, 7)
-      .map(r => {
-        const parsedDate = parseSheetDate(r[0], 'Historique_Émotions.Date');
-        return {
-          date: parsedDate ? Utilities.formatDate(parsedDate, PARIS_TIMEZONE, 'dd/MM') : '—',
-          emotion1: r[2],
-          emotion2: r[3],
-          emotion3: r[4],
-          source1: r[5],
-          source2: r[6],
-          source3: r[7],
-          gestion: r[8]
-        };
-      });
-    
-    // Badges
-    const badgesObtSheet = ss.getSheetByName('Badges_Obtenus');
-    const badgesObtData = badgesObtSheet.getDataRange().getValues().slice(1);
-    const personneBadgesIds = badgesObtData.filter(r => r[0] === personne).map(r => r[1]);
-    
-    const badgesDefSheet = ss.getSheetByName('Badges');
-    const badgesDef = badgesDefSheet.getDataRange().getValues().slice(1);
-    const badges = personneBadgesIds.map(bid => {
-      const def = badgesDef.find(b => b[0] === bid);
-      return def ? { id: def[0], nom: def[1], emoji: def[2] } : null;
-    }).filter(b => b);
-    
-    const pointsDisponibles = getPointsDisponibles_(personneKey, evalMeta, claimsMeta);
 
-    // Récompenses
-    const rewardsSheet = ss.getSheetByName('Récompenses');
-    const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
-    const rewards = rewardsData
-      .filter(r => r[5] === 'Oui')
-      .map(r => ({
-        id: r[0],
-        nom: r[1],
-        emoji: r[2],
-        cout: Number(r[3]) || 0,
-        disponible: pointsDisponibles.totalPoints >= (Number(r[3]) || 0)
-      }));
-    
+    // Emotions recentes (depuis Evaluations)
+    const recentEmotions = sortedEvals.slice(0, 7).map(row => {
+      const parsedDate = parseDate_(row[dateIdx]);
+      return {
+        date: parsedDate ? Utilities.formatDate(parsedDate, PARIS_TIMEZONE, 'dd/MM') : '-',
+        emotion1: row[emo1Idx] || '',
+        emotion2: row[emo2Idx] || '',
+        emotion3: row[emo3Idx] || '',
+        gestion: Number(row[gestionIdx]) || 0
+      };
+    });
+
+    // Badges
+    const badges = getBadgesObtenus_(personneKey);
+
+    // Recompenses
+    const rewards = getRecompensesDisponibles_(points.totalPoints);
+
     return {
-      nom: personne,
-      avatar: personneInfo ? personneInfo[1] : '👤',
-      couleur: personneInfo ? personneInfo[2] : '#6C5CE7',
-      age: personneInfo ? personneInfo[3] : 0,
-      weekPoints: weekPoints,
-      totalPoints: pointsDisponibles.totalPoints,
-      totalEarned: pointsDisponibles.totalGagnes,
-      totalSpent: pointsDisponibles.totalDepenses,
-      weekDays: weekDays,
-      dailyScores: dailyScores,
-      streak: streak,
-      recentEmotions: recentEmotions,
-      badges: badges,
-      rewards: rewards,
-      maxPointsJour: maxPointsJour,
-      evaluatedToday: hasEvaluatedToday(personne),
+      nom: personneKey,
+      avatar: personneInfo?.avatar || '👤',
+      couleur: personneInfo?.couleur || '#6C5CE7',
+      age: personneInfo?.age || 0,
+      weekPoints,
+      totalPoints: points.totalPoints,
+      totalEarned: points.totalGagnes,
+      totalSpent: points.totalDepenses,
+      weekDays,
+      dailyScores,
+      streak,
+      recentEmotions,
+      badges,
+      rewards,
+      maxPointsJour,
+      evaluatedToday: hasEvaluatedToday(personneKey),
       weekStart: Utilities.formatDate(weekStart, PARIS_TIMEZONE, 'dd/MM'),
       weekEnd: Utilities.formatDate(weekEnd, PARIS_TIMEZONE, 'dd/MM')
     };
+
   } catch (error) {
-    Logger.log(`[getPersonneData] Erreur pour ${personne} : ${error}`);
-    throw new Error('Impossible de charger les données (timezone Paris).');
+    Logger.log(`[getPersonneData] Erreur: ${error}`);
+    throw new Error('Impossible de charger les donnees.');
   }
 }
 
-// ==================================================
-// DONNÉES FAMILLE
-// ==================================================
 function getFamilyData() {
   const personnes = getPersonnes();
   return personnes.map(p => {
@@ -1770,155 +774,241 @@ function getFamilyData() {
 }
 
 // ==================================================
-// RÉCLAMER RÉCOMPENSE
+// RECOMPENSES
 // ==================================================
+
+function getRecompensesDisponibles_(pointsDisponibles) {
+  try {
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Recompenses');
+    const idIdx = headerIndex['ID'] ?? 0;
+    const nomIdx = headerIndex['Nom'] ?? 1;
+    const emojiIdx = headerIndex['Emoji'] ?? 2;
+    const coutIdx = headerIndex['Cout'] ?? 3;
+    const actifIdx = headerIndex['Actif'] ?? 5;
+
+    return rows
+      .filter(row => {
+        const actif = String(row[actifIdx] || '').trim().toLowerCase();
+        return actif === 'oui' || actif === 'true' || actif === '1';
+      })
+      .map(row => {
+        const cout = Number(row[coutIdx]) || 0;
+        return {
+          id: String(row[idIdx] || '').trim(),
+          nom: String(row[nomIdx] || '').trim(),
+          emoji: String(row[emojiIdx] || '').trim() || '🎁',
+          cout,
+          disponible: pointsDisponibles >= cout
+        };
+      });
+  } catch (error) {
+    Logger.log(`[getRecompensesDisponibles] Erreur: ${error}`);
+    return [];
+  }
+}
+
 function claimReward(personne, rewardId) {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const data = getPersonneData(personne);
-  
-  const rewardsSheet = ss.getSheetByName('Récompenses');
-  const rewardsData = rewardsSheet.getDataRange().getValues().slice(1);
-  const reward = rewardsData.find(r => r[0] === rewardId);
-  
-  if (!reward) {
-    return { success: false, message: 'Récompense introuvable 😕' };
-  }
+  try {
+    const personneKey = String(personne || '').trim();
+    const points = calculerPoints_(personneKey);
 
-  const rewardCost = Number(reward[3]) || 0;
-  
-  if (data.totalPoints < rewardCost) {
-    return { success: false, message: `Il te manque ${rewardCost - data.totalPoints} étoiles 😢` };
-  }
+    // Trouver la recompense
+    const { rows: rewardsRows, headerIndex: rewardsIndex } = getFeuilleAvecHeaders_('Recompenses');
+    const reward = rewardsRows.find(r => String(r[rewardsIndex['ID'] ?? 0] || '').trim() === rewardId);
 
-  Logger.log(`[claimReward] Demande de récompense pour ${personne} (${rewardId}) : coût=${rewardCost}, points dispos=${data.totalPoints}.`);
-  
-  const claimsMeta = getRecompensesDemandeesMeta_();
-  const claimsSheet = claimsMeta.sheet;
-  if (!claimsSheet) {
-    Logger.log('[claimReward] Feuille "Récompenses_Demandées" introuvable, enregistrement annulé.');
-    throw new Error('Feuille "Récompenses_Demandées" introuvable.');
-  }
-
-  if (!claimsMeta.headers || claimsMeta.headers.length === 0) {
-    Logger.log('[claimReward] En-têtes absents dans "Récompenses_Demandées", enregistrement annulé.');
-    throw new Error('En-têtes manquants dans la feuille Récompenses_Demandées.');
-  }
-
-  const newId = 'C' + String(claimsSheet.getLastRow()).padStart(4, '0');
-  const rowValues = new Array(claimsMeta.headers.length).fill('');
-  const setClaimValue = (header, value, aliases = []) => {
-    const candidates = [header].concat(aliases);
-    const normalizedCandidates = candidates.map(candidate => normaliserCleEntete_(candidate));
-    const index = claimsMeta.headers.findIndex(h => normalizedCandidates.includes(normaliserCleEntete_(h)));
-    if (index === -1) {
-      Logger.log(`[claimReward] Colonne "${header}" introuvable (aliases=${JSON.stringify(aliases)}), valeur ignorée.`);
-      return;
+    if (!reward) {
+      return { success: false, message: 'Recompense introuvable.' };
     }
-    rowValues[index] = value;
-  };
 
-  setClaimValue('ID', newId);
-  setClaimValue('Date', new Date());
-  setClaimValue('Personne', personne);
-  setClaimValue('Récompense', reward[1], ['Recompense']);
-  setClaimValue('Coût', rewardCost, ['Cout']);
-  setClaimValue('Statut', 'En attente', ['Status']);
-  setClaimValue('Validé par', '', ['Valide par', 'ValidéPar', 'ValidePar']);
-  setClaimValue('Commentaire', '');
+    const rewardNom = String(reward[rewardsIndex['Nom'] ?? 1] || '').trim();
+    const rewardCout = Number(reward[rewardsIndex['Cout'] ?? 3]) || 0;
 
-  claimsSheet.getRange(claimsSheet.getLastRow() + 1, 1, 1, rowValues.length).setValues([rowValues]);
-  Logger.log(`[claimReward] Demande enregistrée (${newId}) pour ${personne}, coût=${rewardCost}.`);
-  
-  return { 
-    success: true, 
-    message: `🎉 Super ! "${reward[1]}" demandé !`
-  };
+    if (points.totalPoints < rewardCout) {
+      return { success: false, message: `Il te manque ${rewardCout - points.totalPoints} etoiles.` };
+    }
+
+    // Enregistrer la demande
+    const { sheet, headers, headerIndex } = getFeuilleAvecHeaders_('Recompenses_Demandees');
+    const newId = 'C' + String(sheet.getLastRow()).padStart(4, '0');
+
+    const rowValues = new Array(headers.length).fill('');
+    const setValue = (header, value) => {
+      const idx = headerIndex[header];
+      if (typeof idx === 'number') rowValues[idx] = value;
+    };
+
+    setValue('ID', newId);
+    setValue('Date', new Date());
+    setValue('Personne', personneKey);
+    setValue('Recompense', rewardNom);
+    setValue('Cout', rewardCout);
+    setValue('Statut', 'En attente');
+    setValue('ValidePar', '');
+    setValue('Commentaire', '');
+
+    sheet.appendRow(rowValues);
+    Logger.log(`[claimReward] Demande ${newId} pour ${personneKey}: ${rewardNom} (${rewardCout} pts).`);
+
+    // Soustraire les points du total stocke
+    const newTotalPoints = addPointsProperty_(personneKey, -rewardCout);
+    Logger.log(`[claimReward] Points apres deduction: ${newTotalPoints} pts`);
+
+    return { success: true, message: `"${rewardNom}" demande !`, newTotalPoints };
+
+  } catch (error) {
+    Logger.log(`[claimReward] Erreur: ${error}`);
+    return { success: false, message: 'Erreur lors de la demande.' };
+  }
 }
 
 // ==================================================
 // BADGES
 // ==================================================
-function checkBadges(personne) {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const data = getPersonneData(personne);
-  const evalMeta = getEvaluationsFeuille_();
-  const personneIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'personne', 3, 'Personne');
-  const totalJourIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'totalJour', 15, 'TotalJour');
-  const gestionEmotionIndex = getEvaluationColumnIndex_(evalMeta.indexes, 'gestionEmotion', 10, 'GestionEmotion');
-  const emotion1Index = getEvaluationColumnIndex_(evalMeta.indexes, 'emotion1', 4, 'Emotion1');
-  const evals = evalMeta.rows.filter(r => r[personneIndex] === personne);
-  
+
+function getBadgesObtenus_(personne) {
+  try {
+    const { rows: obtRows, headerIndex: obtIndex } = getFeuilleAvecHeaders_('Badges_Obtenus');
+    const { rows: defRows, headerIndex: defIndex } = getFeuilleAvecHeaders_('Badges');
+
+    const persIdx = obtIndex['Personne'] ?? 0;
+    const badgeIdIdx = obtIndex['BadgeID'] ?? 1;
+    const defIdIdx = defIndex['ID'] ?? 0;
+    const defNomIdx = defIndex['Nom'] ?? 1;
+    const defEmojiIdx = defIndex['Emoji'] ?? 2;
+
+    const badgeIds = obtRows
+      .filter(r => String(r[persIdx] || '').trim() === personne)
+      .map(r => String(r[badgeIdIdx] || '').trim());
+
+    return badgeIds.map(id => {
+      const def = defRows.find(r => String(r[defIdIdx] || '').trim() === id);
+      if (!def) return null;
+      return {
+        id,
+        nom: String(def[defNomIdx] || '').trim(),
+        emoji: String(def[defEmojiIdx] || '').trim() || '🏆'
+      };
+    }).filter(Boolean);
+
+  } catch (error) {
+    Logger.log(`[getBadgesObtenus] Erreur: ${error}`);
+    return [];
+  }
+}
+
+function checkBadges_(personne) {
+  const personneKey = String(personne || '').trim();
   const newBadges = [];
-  
-  // B01 - Première étoile
-  if (evals.length >= 1 && !data.badges.some(b => b.id === 'B01')) {
-    if (awardBadge(personne, 'B01')) {
-      newBadges.push({ id: 'B01', nom: 'Première étoile', emoji: '⭐' });
+  const existingBadges = getBadgesObtenus_(personneKey).map(b => b.id);
+
+  try {
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Evaluations');
+    const persIdx = headerIndex['Personne'] ?? 3;
+    const totalIdx = headerIndex['TotalJour'] ?? 11;
+    const gestionIdx = headerIndex['GestionEmotion'] ?? 10;
+    const emo1Idx = headerIndex['Emotion1'] ?? 4;
+    const dateIdx = headerIndex['Date'] ?? 1;
+
+    const evals = rows.filter(r => String(r[persIdx] || '').trim() === personneKey);
+
+    // Calculer les donnees pour les badges
+    const todayParis = getParisMidnight_(new Date());
+    const weekStart = getMonday_(todayParis);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+
+    let weekDays = 0;
+    evals.forEach(row => {
+      const parsedDate = parseDate_(row[dateIdx]);
+      if (!parsedDate) return;
+      const date = getParisMidnight_(parsedDate);
+      if (date >= weekStart && date <= weekEnd) weekDays++;
+    });
+
+    const { tasks } = getTachesPourPersonne(personneKey);
+    const maxPoints = tasks.length * SCORES.TASK_MAX + SCORES.GESTION_MAX;
+
+    // B01 - Premiere etoile (1 evaluation)
+    if (evals.length >= 1 && !existingBadges.includes('B01')) {
+      if (awardBadge_(personneKey, 'B01')) {
+        newBadges.push({ id: 'B01', nom: 'Premiere etoile', emoji: '⭐' });
+      }
     }
-  }
-  
-  // B05 - Semaine champion (7 jours)
-  if (data.weekDays >= 7 && !data.badges.some(b => b.id === 'B05')) {
-    if (awardBadge(personne, 'B05')) {
-      newBadges.push({ id: 'B05', nom: 'Semaine champion', emoji: '🏆' });
+
+    // B05 - Semaine champion (7 jours dans la semaine)
+    if (weekDays >= 7 && !existingBadges.includes('B05')) {
+      if (awardBadge_(personneKey, 'B05')) {
+        newBadges.push({ id: 'B05', nom: 'Semaine champion', emoji: '🏆' });
+      }
     }
-  }
-  
-  // B06 - Journée parfaite (26/26)
-  const hasPerfect = evals.some(r => Number(r[totalJourIndex] || 0) >= 26);
-  if (hasPerfect && !data.badges.some(b => b.id === 'B06')) {
-    if (awardBadge(personne, 'B06')) {
-      newBadges.push({ id: 'B06', nom: 'Journée parfaite', emoji: '🌟' });
+
+    // B06 - Journee parfaite (max points)
+    const hasPerfect = evals.some(r => Number(r[totalIdx] || 0) >= maxPoints);
+    if (hasPerfect && !existingBadges.includes('B06')) {
+      if (awardBadge_(personneKey, 'B06')) {
+        newBadges.push({ id: 'B06', nom: 'Journee parfaite', emoji: '🌟' });
+      }
     }
-  }
-  
-  // B08 - Zen master (5x gestion émotions = 2)
-  const goodGestion = evals.filter(r => Number(r[gestionEmotionIndex] || 0) === 2).length;
-  if (goodGestion >= 5 && !data.badges.some(b => b.id === 'B08')) {
-    if (awardBadge(personne, 'B08')) {
-      newBadges.push({ id: 'B08', nom: 'Zen master', emoji: '🧘' });
+
+    // B08 - Zen master (5x gestion = max)
+    const goodGestion = evals.filter(r => Number(r[gestionIdx] || 0) === SCORES.GESTION_MAX).length;
+    if (goodGestion >= 5 && !existingBadges.includes('B08')) {
+      if (awardBadge_(personneKey, 'B08')) {
+        newBadges.push({ id: 'B08', nom: 'Zen master', emoji: '🧘' });
+      }
     }
-  }
-  
-  // B11 - Explorateur émotions (7 jours avec émotions)
-  const daysWithEmotions = evals.filter(r => r[emotion1Index] && r[emotion1Index] !== '').length;
-  if (daysWithEmotions >= 7 && !data.badges.some(b => b.id === 'B11')) {
-    if (awardBadge(personne, 'B11')) {
-      newBadges.push({ id: 'B11', nom: 'Explorateur émotions', emoji: '🎭' });
+
+    // B11 - Explorateur emotions (7 jours avec emotions)
+    const daysWithEmotions = evals.filter(r => r[emo1Idx] && String(r[emo1Idx]).trim() !== '').length;
+    if (daysWithEmotions >= 7 && !existingBadges.includes('B11')) {
+      if (awardBadge_(personneKey, 'B11')) {
+        newBadges.push({ id: 'B11', nom: 'Explorateur emotions', emoji: '🎭' });
+      }
     }
-  }
-  
-  // B10 - Collectionneur (5 badges)
-  if (data.badges.length + newBadges.length >= 5 && !data.badges.some(b => b.id === 'B10')) {
-    if (awardBadge(personne, 'B10')) {
-      newBadges.push({ id: 'B10', nom: 'Collectionneur', emoji: '👑' });
+
+    // B10 - Collectionneur (5 badges)
+    if (existingBadges.length + newBadges.length >= 5 && !existingBadges.includes('B10')) {
+      if (awardBadge_(personneKey, 'B10')) {
+        newBadges.push({ id: 'B10', nom: 'Collectionneur', emoji: '👑' });
+      }
     }
+
+  } catch (error) {
+    Logger.log(`[checkBadges] Erreur: ${error}`);
   }
-  
+
   return newBadges;
 }
 
-function awardBadge(personne, badgeId) {
-  const ss = SpreadsheetApp.openById(SS_ID);
-  const sheet = ss.getSheetByName('Badges_Obtenus');
-  const data = sheet.getDataRange().getValues().slice(1);
-  
-  if (data.some(r => r[0] === personne && r[1] === badgeId)) {
+function awardBadge_(personne, badgeId) {
+  try {
+    const { sheet, rows, headerIndex } = getFeuilleAvecHeaders_('Badges_Obtenus');
+    const persIdx = headerIndex['Personne'] ?? 0;
+    const badgeIdIdx = headerIndex['BadgeID'] ?? 1;
+
+    // Verifier si deja obtenu
+    const alreadyHas = rows.some(r =>
+      String(r[persIdx] || '').trim() === personne &&
+      String(r[badgeIdIdx] || '').trim() === badgeId
+    );
+    if (alreadyHas) return false;
+
+    sheet.appendRow([personne, badgeId, new Date()]);
+    Logger.log(`[awardBadge] Badge ${badgeId} attribue a ${personne}.`);
+    return true;
+
+  } catch (error) {
+    Logger.log(`[awardBadge] Erreur: ${error}`);
     return false;
   }
-  
-  sheet.appendRow([personne, badgeId, new Date()]);
-  return true;
 }
 
 // ==================================================
-// UTILITAIRES
+// FONCTIONS UTILITAIRES EXPOSEES
 // ==================================================
-function getMonday(date) {
-  const d = getParisMidnight(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+
+function forcerSynchronisation() {
+  const resultats = synchroniserFeuilles_();
+  Logger.log(`[forcerSynchronisation] Resultats: ${JSON.stringify(resultats)}`);
+  return resultats;
 }
