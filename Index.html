@@ -4,18 +4,18 @@
   <base target="_top">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>🌟 Mes Étoiles</title>
+  <title>Mes Etoiles</title>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <?!= include('Styles'); ?>
 </head>
 <body>
 
-  <!-- ========== ÉCRAN ACCUEIL ========== -->
+  <!-- ========== ECRAN ACCUEIL ========== -->
   <div id="screen-home" class="screen active">
     <div class="home-container">
       <div class="home-stars">✨🌟✨</div>
-      <h1 class="home-title">Mes Étoiles</h1>
-      <p class="home-subtitle">Qui veut gagner des étoiles ?</p>
+      <h1 class="home-title">Mes Etoiles</h1>
+      <p class="home-subtitle">Qui veut gagner des etoiles ?</p>
       <div id="personnes-list" class="personnes-list">
         <div class="loader"><div class="loader-star">⭐</div></div>
       </div>
@@ -25,9 +25,9 @@
     </div>
   </div>
 
-  <!-- ========== ÉCRAN PRINCIPAL ========== -->
+  <!-- ========== ECRAN PRINCIPAL ========== -->
   <div id="screen-main" class="screen">
-    
+
     <header id="main-header">
       <button class="btn-home" onclick="goHome()">🏠</button>
       <div class="header-user">
@@ -41,312 +41,140 @@
     </header>
 
     <main id="main-content">
-      
-      <!-- ===== PAGE ÉVALUATION ===== -->
+
+      <!-- ===== PAGE EVALUATION ===== -->
       <section id="page-eval" class="page active">
-        
+
         <div id="already-done" class="already-done" style="display:none;">
           <div class="done-illustration">🎉</div>
           <h2>C'est fait !</h2>
-          <p>Tu as déjà gagné tes étoiles aujourd'hui</p>
+          <p>Tu as deja gagne tes etoiles aujourd'hui</p>
           <div class="done-message">Reviens demain ! 🌙</div>
-          <button class="btn-see-stars" onclick="showPage('stats')">Voir mes étoiles ⭐</button>
+          <button class="btn-see-stars" onclick="showPage('stats')">Voir mes etoiles ⭐</button>
         </div>
-        
+
         <div id="eval-form">
-          
+
           <div class="eval-intro">
-            <h2>🌟 C'est l'heure des étoiles !</h2>
-            <p>Comment ça s'est passé aujourd'hui ?</p>
+            <h2>🌟 C'est l'heure des etoiles !</h2>
+            <p>Comment ca s'est passe aujourd'hui ?</p>
           </div>
-          
-          <!-- ===== CORVÉES ===== -->
+
+          <!-- ===== CORVEES ===== -->
           <div class="category-section">
             <div class="category-header corvees-bg">
               <span class="category-icon">🧹</span>
               <span class="category-title">Mes petits travaux</span>
             </div>
-            <div class="tasks-list" data-category="corvees" id="tasks-corvees">
-              
-              <div class="task-card" data-task="rangerChambre">
-                <div class="task-visual"><div class="task-emoji">🛏️</div></div>
-                <div class="task-info">
-                  <div class="task-name">Ranger ma chambre</div>
-                  <div class="task-desc">Mes affaires sont bien rangées</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('rangerChambre', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('rangerChambre', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('rangerChambre', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('rangerChambre', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="faireLit">
-                <div class="task-visual"><div class="task-emoji">🛌</div></div>
-                <div class="task-info">
-                  <div class="task-name">Faire mon lit</div>
-                  <div class="task-desc">Ma couette est bien mise</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('faireLit', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('faireLit', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('faireLit', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('faireLit', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="rangerJouets">
-                <div class="task-visual"><div class="task-emoji">🧸</div></div>
-                <div class="task-info">
-                  <div class="task-name">Ranger mes jouets</div>
-                  <div class="task-desc">Mes jouets sont à leur place</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('rangerJouets', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('rangerJouets', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('rangerJouets', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('rangerJouets', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="aiderTable">
-                <div class="task-visual"><div class="task-emoji">🍽️</div></div>
-                <div class="task-info">
-                  <div class="task-name">Aider à table</div>
-                  <div class="task-desc">Mettre ou débarrasser</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('aiderTable', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('aiderTable', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('aiderTable', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('aiderTable', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-            </div>
+            <div class="tasks-list" data-category="corvees"></div>
           </div>
-          
+
           <!-- ===== COMPORTEMENT ===== -->
           <div class="category-section">
             <div class="category-header comportement-bg">
               <span class="category-icon">💛</span>
               <span class="category-title">Mon comportement</span>
             </div>
-            <div class="tasks-list" data-category="comportement" id="tasks-comportement">
-              
-              <div class="task-card" data-task="ecouter">
-                <div class="task-visual"><div class="task-emoji">👂</div></div>
-                <div class="task-info">
-                  <div class="task-name">Écouter papa et maman</div>
-                  <div class="task-desc">J'écoute quand on me parle</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('ecouter', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('ecouter', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('ecouter', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('ecouter', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="gentilSoeur">
-                <div class="task-visual"><div class="task-emoji">👭</div></div>
-                <div class="task-info">
-                  <div class="task-name">Gentil avec ma sœur</div>
-                  <div class="task-desc">On joue bien ensemble</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('gentilSoeur', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('gentilSoeur', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('gentilSoeur', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('gentilSoeur', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="politesse">
-                <div class="task-visual"><div class="task-emoji">🙏</div></div>
-                <div class="task-info">
-                  <div class="task-name">Les mots magiques</div>
-                  <div class="task-desc">S'il te plaît, merci, pardon</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('politesse', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('politesse', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('politesse', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('politesse', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="pasColere">
-                <div class="task-visual"><div class="task-emoji">😌</div></div>
-                <div class="task-info">
-                  <div class="task-name">Calme et zen</div>
-                  <div class="task-desc">Pas de grosse colère</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('pasColere', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('pasColere', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('pasColere', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('pasColere', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-            </div>
+            <div class="tasks-list" data-category="comportement"></div>
           </div>
-          
+
           <!-- ===== RITUELS ===== -->
           <div class="category-section">
             <div class="category-header rituels-bg">
               <span class="category-icon">🌅</span>
               <span class="category-title">Mes rituels</span>
             </div>
-            <div class="tasks-list" data-category="rituels" id="tasks-rituels">
-              
-              <div class="task-card" data-task="dentsMatin">
-                <div class="task-visual">
-                  <div class="task-emoji">🦷</div>
-                  <div class="task-time">☀️ Matin</div>
-                </div>
-                <div class="task-info">
-                  <div class="task-name">Brosser mes dents</div>
-                  <div class="task-desc">Après le petit-déjeuner</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('dentsMatin', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('dentsMatin', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('dentsMatin', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('dentsMatin', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="dentsSoir">
-                <div class="task-visual">
-                  <div class="task-emoji">🦷</div>
-                  <div class="task-time">🌙 Soir</div>
-                </div>
-                <div class="task-info">
-                  <div class="task-name">Brosser mes dents</div>
-                  <div class="task-desc">Avant le dodo</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('dentsSoir', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('dentsSoir', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('dentsSoir', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('dentsSoir', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="habiller">
-                <div class="task-visual"><div class="task-emoji">👕</div></div>
-                <div class="task-info">
-                  <div class="task-name">M'habiller tout seul</div>
-                  <div class="task-desc">Comme un grand !</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('habiller', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('habiller', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('habiller', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('habiller', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-              <div class="task-card" data-task="cartable">
-                <div class="task-visual"><div class="task-emoji">🎒</div></div>
-                <div class="task-info">
-                  <div class="task-name">Préparer mes affaires</div>
-                  <div class="task-desc">Mon sac est prêt</div>
-                </div>
-                <div class="rating-scale">
-                  <button class="scale-btn" data-value="-1" onclick="setTaskRating('cartable', -1, this)"><span class="scale-emoji">☆</span></button>
-                  <button class="scale-btn" data-value="1" onclick="setTaskRating('cartable', 1, this)"><span class="scale-emoji">⭐</span></button>
-                  <button class="scale-btn" data-value="2" onclick="setTaskRating('cartable', 2, this)"><span class="scale-emoji">⭐⭐</span></button>
-                  <button class="scale-btn" data-value="3" onclick="setTaskRating('cartable', 3, this)"><span class="scale-emoji">⭐⭐⭐</span></button>
-                </div>
-              </div>
-              
-            </div>
+            <div class="tasks-list" data-category="rituels"></div>
           </div>
-          
-          <!-- ===== 🎭 SECTION ÉMOTIONS ===== -->
+
+          <!-- ===== AUTRES ===== -->
+          <div class="category-section">
+            <div class="category-header autres-bg">
+              <span class="category-icon">✨</span>
+              <span class="category-title">Autres</span>
+            </div>
+            <div class="tasks-list" data-category="autres"></div>
+          </div>
+
+          <!-- ===== SECTION EMOTIONS ===== -->
           <div class="category-section emotions-section">
             <div class="category-header emotions-bg">
               <span class="category-icon">🎭</span>
-              <span class="category-title">Mes émotions</span>
+              <span class="category-title">Mes emotions</span>
             </div>
             <div class="emotions-content">
-              
+
               <!-- Question 1: Comment tu te sens ? -->
               <div class="emotion-question">
                 <h3>😊 Comment tu t'es senti(e) aujourd'hui ?</h3>
-                <p class="emotion-hint">Choisis jusqu'à 3 émotions</p>
-                
+                <p class="emotion-hint">Choisis jusqu'a 3 emotions</p>
+
                 <div class="emotions-grid">
-                  <button class="emotion-btn" data-emotion="😊" onclick="toggleEmotion('😊', 'Joyeux', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('😊', 'Joyeux', this)">
                     <span class="emotion-face">😊</span>
                     <span class="emotion-name">Joyeux</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="😢" onclick="toggleEmotion('😢', 'Triste', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('😢', 'Triste', this)">
                     <span class="emotion-face">😢</span>
                     <span class="emotion-name">Triste</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="😠" onclick="toggleEmotion('😠', 'En colère', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('😠', 'En colere', this)">
                     <span class="emotion-face">😠</span>
-                    <span class="emotion-name">En colère</span>
+                    <span class="emotion-name">En colere</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="😰" onclick="toggleEmotion('😰', 'Inquiet', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('😰', 'Inquiet', this)">
                     <span class="emotion-face">😰</span>
                     <span class="emotion-name">Inquiet</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="😴" onclick="toggleEmotion('😴', 'Fatigué', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('😴', 'Fatigue', this)">
                     <span class="emotion-face">😴</span>
-                    <span class="emotion-name">Fatigué</span>
+                    <span class="emotion-name">Fatigue</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="🤩" onclick="toggleEmotion('🤩', 'Excité', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('🤩', 'Excite', this)">
                     <span class="emotion-face">🤩</span>
-                    <span class="emotion-name">Excité</span>
+                    <span class="emotion-name">Excite</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="😌" onclick="toggleEmotion('😌', 'Calme', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('😌', 'Calme', this)">
                     <span class="emotion-face">😌</span>
                     <span class="emotion-name">Calme</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="🥺" onclick="toggleEmotion('🥺', 'Frustré', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('🥺', 'Frustre', this)">
                     <span class="emotion-face">🥺</span>
-                    <span class="emotion-name">Frustré</span>
+                    <span class="emotion-name">Frustre</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="💪" onclick="toggleEmotion('💪', 'Fier', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('💪', 'Fier', this)">
                     <span class="emotion-face">💪</span>
                     <span class="emotion-name">Fier</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="🙈" onclick="toggleEmotion('🙈', 'Timide', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('🙈', 'Timide', this)">
                     <span class="emotion-face">🙈</span>
                     <span class="emotion-name">Timide</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="🥰" onclick="toggleEmotion('🥰', 'Aimé', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('🥰', 'Aime', this)">
                     <span class="emotion-face">🥰</span>
-                    <span class="emotion-name">Aimé</span>
+                    <span class="emotion-name">Aime</span>
                   </button>
-                  <button class="emotion-btn" data-emotion="😔" onclick="toggleEmotion('😔', 'Seul', this)">
+                  <button class="emotion-btn" onclick="toggleEmotion('😔', 'Seul', this)">
                     <span class="emotion-face">😔</span>
                     <span class="emotion-name">Seul</span>
                   </button>
                 </div>
-                
+
                 <div id="selected-emotions" class="selected-emotions"></div>
               </div>
-              
+
               <!-- Question 2: Pourquoi ? -->
               <div class="emotion-question">
-                <h3>🤔 C'était à cause de quoi ?</h3>
-                <p class="emotion-hint">Choisis une cause pour chaque émotion</p>
-                
+                <h3>🤔 C'etait a cause de quoi ?</h3>
+                <p class="emotion-hint">Choisis une cause pour chaque emotion</p>
                 <div id="sources-by-emotion" class="sources-by-emotion"></div>
               </div>
-              
-              <!-- Question 3: Gestion des émotions -->
+
+              <!-- Question 3: Gestion des emotions -->
               <div class="emotion-question">
-                <h3>🧘 As-tu réussi à gérer tes émotions ?</h3>
+                <h3>🧘 As-tu reussi a gerer tes emotions ?</h3>
                 <p class="emotion-hint">Respirer, parler, te calmer...</p>
-                
+
                 <div class="gestion-scale">
                   <button class="gestion-btn" data-value="-1" onclick="setGestion(-1, this)">
                     <span class="gestion-emoji">🙁</span>
@@ -362,15 +190,15 @@
                   </button>
                 </div>
               </div>
-              
+
             </div>
           </div>
-          
-          <!-- ===== HUMEUR GÉNÉRALE ===== -->
+
+          <!-- ===== HUMEUR GENERALE ===== -->
           <div class="humeur-section">
             <div class="humeur-header">
               <span class="humeur-icon">💭</span>
-              <span class="humeur-title">En résumé, ta journée ?</span>
+              <span class="humeur-title">En resume, ta journee ?</span>
             </div>
             <div class="humeur-options">
               <button class="humeur-btn" onclick="setHumeur('⛈️', this)">
@@ -396,42 +224,42 @@
             </div>
           </div>
 
-          <!-- ===== MOMENT PRÉFÉRÉ ===== -->
+          <!-- ===== MOMENT PREFERE ===== -->
           <div class="favorite-section">
-            <label class="favorite-label" for="daily-favorite">Qu’est-ce que j’ai préféré aujourd’hui ?</label>
-            <textarea id="daily-favorite" class="favorite-textarea" placeholder="Mon moment préféré..." rows="3"></textarea>
+            <label class="favorite-label" for="daily-favorite">Qu'est-ce que j'ai prefere aujourd'hui ?</label>
+            <textarea id="daily-favorite" class="favorite-textarea" placeholder="Mon moment prefere..." rows="3"></textarea>
           </div>
-          
+
           <!-- ===== SCORE PREVIEW ===== -->
           <div class="score-preview">
-            <div class="preview-title">Mes étoiles du jour</div>
+            <div class="preview-title">Mes etoiles du jour</div>
             <div class="preview-stars">
               <span id="preview-score">0</span>
-              <span class="preview-max">/ 26</span>
+              <span class="preview-max">/ 0</span>
             </div>
             <div class="preview-bar">
               <div id="preview-fill" class="preview-fill"></div>
             </div>
             <div id="preview-message" class="preview-message">Remplis toutes les cases !</div>
           </div>
-          
+
           <!-- ===== BOUTON VALIDER ===== -->
           <button id="btn-submit" class="btn-submit" onclick="submitEvaluation()" disabled>
             <span class="btn-icon">🌟</span>
-            <span class="btn-text">Gagner mes étoiles !</span>
+            <span class="btn-text">Gagner mes etoiles !</span>
           </button>
-          
+
         </div>
       </section>
-      
+
       <!-- ===== PAGE STATS ===== -->
       <section id="page-stats" class="page">
-        <div class="stats-header"><h2>⭐ Mes Étoiles</h2></div>
+        <div class="stats-header"><h2>⭐ Mes Etoiles</h2></div>
         <div class="week-card">
           <div class="week-title">Cette semaine</div>
           <div class="week-score">
             <span id="stats-week-points" class="week-points-num">0</span>
-            <span class="week-points-label">étoiles</span>
+            <span class="week-points-label">etoiles</span>
           </div>
           <div class="week-bar"><div id="stats-week-fill" class="week-fill"></div></div>
         </div>
@@ -446,48 +274,48 @@
             <span class="streak-label">jours de suite !</span>
           </div>
         </div>
-        <!-- Historique émotions -->
+        <!-- Historique emotions -->
         <div class="emotions-history">
-          <h3>🎭 Mes émotions récentes</h3>
+          <h3>🎭 Mes emotions recentes</h3>
           <div id="emotions-history-list" class="emotions-history-list"></div>
         </div>
       </section>
-      
+
       <!-- ===== PAGE FAMILLE ===== -->
       <section id="page-family" class="page">
         <div class="family-header"><h2>👨‍👩‍👧‍👦 La Famille</h2></div>
         <div id="family-list" class="family-list"></div>
       </section>
-      
-      <!-- ===== PAGE RÉCOMPENSES ===== -->
+
+      <!-- ===== PAGE RECOMPENSES ===== -->
       <section id="page-rewards" class="page">
         <div class="rewards-header">
           <h2>🎁 Mes Cadeaux</h2>
-          <div class="rewards-points">Tu as <strong id="rewards-total">0</strong> étoiles !</div>
+          <div class="rewards-points">Tu as <strong id="rewards-total">0</strong> etoiles !</div>
         </div>
         <div id="rewards-list" class="rewards-grid"></div>
       </section>
-      
+
       <!-- ===== PAGE BADGES ===== -->
       <section id="page-badges" class="page">
         <div class="badges-header">
-          <h2>🏆 Mes Trophées</h2>
-          <div class="badges-count"><span id="badges-num">0</span> trophées</div>
+          <h2>🏆 Mes Trophees</h2>
+          <div class="badges-count"><span id="badges-num">0</span> trophees</div>
         </div>
         <div id="badges-list" class="badges-grid"></div>
       </section>
-      
+
     </main>
 
     <!-- Navigation -->
     <nav class="bottom-nav">
       <button class="nav-btn active" onclick="showPage('eval')" data-page="eval">
         <span class="nav-icon">✏️</span>
-        <span class="nav-label">Évaluer</span>
+        <span class="nav-label">Evaluer</span>
       </button>
       <button class="nav-btn" onclick="showPage('stats')" data-page="stats">
         <span class="nav-icon">⭐</span>
-        <span class="nav-label">Étoiles</span>
+        <span class="nav-label">Etoiles</span>
       </button>
       <button class="nav-btn" onclick="showPage('family')" data-page="family">
         <span class="nav-icon">👨‍👩‍👧‍👦</span>
@@ -499,26 +327,26 @@
       </button>
       <button class="nav-btn" onclick="showPage('badges')" data-page="badges">
         <span class="nav-icon">🏆</span>
-        <span class="nav-label">Trophées</span>
+        <span class="nav-label">Trophees</span>
       </button>
     </nav>
-    
+
   </div>
 
-  <!-- ========== MODAL SUCCÈS ========== -->
+  <!-- ========== MODAL SUCCES ========== -->
   <div id="success-modal" class="modal">
     <div class="modal-content">
       <div id="confetti-container" class="confetti-container"></div>
       <div class="success-stars">🌟✨⭐✨🌟</div>
       <h2 id="success-title">BRAVO !</h2>
       <p id="success-message"></p>
-        <div class="success-score">
-          <span id="success-points">0</span>
-          <span id="success-max">/ 26 étoiles</span>
-        </div>
+      <div class="success-score">
+        <span id="success-points">0</span>
+        <span id="success-max">/ 0 etoiles</span>
+      </div>
       <div class="success-stars-display" id="success-stars-display"></div>
       <div id="success-badges" class="success-badges"></div>
-      <button class="btn-close" onclick="closeModal()">Super ! 🎉</button>
+      <button class="btn-close" onclick="closeModal()">Super !</button>
     </div>
   </div>
 
