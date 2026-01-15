@@ -9,9 +9,20 @@ const PARIS_TIMEZONE = 'Europe/Paris';
 // CONFIGURATION DES SCORES
 // ==================================================
 const SCORES = {
+  // Valeurs stockees pour les taches
   TASK_MIN: -1,
   TASK_MAX: 3,
   TASK_ALLOWED: [-1, 0, 1, 2, 3],
+  // Conversion etoiles affichees → points reels
+  // 0 etoiles (penalite) → -1 point
+  // 1 etoile → 0 point
+  // 2 etoiles → 1 point
+  // 3 etoiles → 2 points
+  // Formule: points = etoiles - 1 (minimum -1)
+  TASK_TO_POINTS: { '-1': -1, '0': -1, '1': 0, '2': 1, '3': 2 },
+  // Points max par tache = 2 (quand 3 etoiles)
+  TASK_POINTS_MAX: 2,
+  // Gestion des emotions
   GESTION_MIN: -1,
   GESTION_MAX: 1,
   GESTION_ALLOWED: [-1, 0, 1]
@@ -430,13 +441,15 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
 
     const gestionValue = SCORES.GESTION_ALLOWED.includes(emotions.gestion) ? emotions.gestion : 0;
 
-    // Calculer le total
+    // Calculer le total en convertissant etoiles → points
+    // Formule: 0 etoiles=-1pt, 1 etoile=0pt, 2 etoiles=1pt, 3 etoiles=2pts
     let totalJour = gestionValue;
     const taskScores = {};
     taskIds.forEach(taskId => {
-      const score = safeTaskValue(taskId);
-      taskScores[taskId] = score;
-      totalJour += score;
+      const stars = safeTaskValue(taskId);
+      taskScores[taskId] = stars; // On stocke les etoiles
+      const points = SCORES.TASK_TO_POINTS[String(stars)] ?? (stars - 1);
+      totalJour += points;
     });
 
     // Preparer la ligne
@@ -481,7 +494,8 @@ function submitEvaluation(personne, taches, emotions, humeur, commentaire) {
     const newBadges = checkBadges_(personne);
 
     // Calculer le pourcentage et le message
-    const maxPoints = taskIds.length * SCORES.TASK_MAX + SCORES.GESTION_MAX;
+    // Max = (nb taches * 2 points) + 1 point gestion
+    const maxPoints = taskIds.length * SCORES.TASK_POINTS_MAX + SCORES.GESTION_MAX;
     const percent = maxPoints > 0 ? Math.max(0, Math.round((totalJour / maxPoints) * 100)) : 0;
 
     let message, stars;

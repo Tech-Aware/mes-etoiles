@@ -14,6 +14,11 @@ const SCORES = {
   TASK_MIN: -1,
   TASK_MAX: 3,
   TASK_ALLOWED: [-1, 0, 1, 2, 3],
+  // Conversion etoiles → points reels
+  // 0 etoiles=-1pt, 1 etoile=0pt, 2 etoiles=1pt, 3 etoiles=2pts
+  TASK_TO_POINTS: { '-1': -1, '0': -1, '1': 0, '2': 1, '3': 2 },
+  TASK_POINTS_MAX: 2,  // 3 etoiles = 2 points
+  TASK_POINTS_MIN: -1, // 0 etoiles = -1 point
   GESTION_MIN: -1,
   GESTION_MAX: 1,
   GESTION_ALLOWED: [-1, 0, 1]
@@ -220,11 +225,13 @@ function resetFormUI() {
 }
 
 function getMaxPoints() {
-  return activeTasks.length * SCORES.TASK_MAX + SCORES.GESTION_MAX;
+  // Max = (nb taches * 2 points) + 1 point gestion
+  return activeTasks.length * SCORES.TASK_POINTS_MAX + SCORES.GESTION_MAX;
 }
 
 function getMinPoints() {
-  return activeTasks.length * SCORES.TASK_MIN + SCORES.GESTION_MIN;
+  // Min = (nb taches * -1 point) + (-1) point gestion
+  return activeTasks.length * SCORES.TASK_POINTS_MIN + SCORES.GESTION_MIN;
 }
 
 // ==================================================
@@ -375,9 +382,12 @@ function updatePreview() {
   let total = 0;
   let filledTasks = 0;
 
+  // Convertir etoiles en points
   activeTasks.forEach(taskId => {
     if (taskRatings[taskId] !== null && taskRatings[taskId] !== undefined) {
-      total += taskRatings[taskId];
+      const stars = taskRatings[taskId];
+      const points = SCORES.TASK_TO_POINTS[String(stars)] ?? (stars - 1);
+      total += points;
       filledTasks++;
     }
   });
