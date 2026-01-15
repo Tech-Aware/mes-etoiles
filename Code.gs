@@ -462,10 +462,23 @@ function estTacheDisponibleAujourdhui_(tache) {
 }
 
 function estTacheAssigneePourPersonne_(tache, personne) {
-  if (!tache.personnes) return true;
-  const assignees = tache.personnes.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
-  if (assignees.length === 0) return true;
-  return assignees.includes(personne);
+  try {
+    if (!tache || !tache.personnes) return true;
+    const personneKey = normaliserTexte_(String(personne || '').trim());
+    if (!personneKey) {
+      Logger.log('[estTacheAssigneePourPersonne] Personne vide: aucune tâche assignée ne sera retournée.');
+      return false;
+    }
+    const assignees = tache.personnes
+      .split(/[,;\n]+/)
+      .map(s => normaliserTexte_(s.trim()))
+      .filter(Boolean);
+    if (assignees.length === 0) return true;
+    return assignees.includes(personneKey);
+  } catch (error) {
+    Logger.log(`[estTacheAssigneePourPersonne] Erreur: ${error}`);
+    return false;
+  }
 }
 
 function getTachesPourPersonne(personne) {
@@ -476,6 +489,7 @@ function getTachesPourPersonne(personne) {
     estTacheAssigneePourPersonne_(t, personneKey) &&
     estTacheDisponibleAujourdhui_(t)
   );
+  Logger.log(`[getTachesPourPersonne] Personne="${personneKey}" - Tâches totales=${taches.length}, Tâches filtrées=${tachesFiltrees.length}`);
 
   return {
     personne: personneKey,
