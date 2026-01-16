@@ -61,7 +61,7 @@ const SCHEMAS = {
     headers: ['Personne', 'BadgeID', 'Date'],
     required: true
   },
-  Sources_Emotions: {
+  Sources_Émotions: {
     headers: ['ID', 'Nom', 'Emoji', 'Description'],
     required: true
   }
@@ -382,13 +382,14 @@ function getPersonnes() {
 
 function getSourcesEmotions() {
   try {
-    const { rows, headerIndex } = getFeuilleAvecHeaders_('Sources_Emotions');
+    Logger.log('[getSourcesEmotions] Début du chargement des sources');
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Sources_Émotions');
     const idIdx = headerIndex['ID'] ?? 0;
     const nomIdx = headerIndex['Nom'] ?? 1;
     const emojiIdx = headerIndex['Emoji'] ?? 2;
     const descIdx = headerIndex['Description'] ?? 3;
 
-    return rows
+    const sources = rows
       .filter(row => row[idIdx] && row[nomIdx]) // Filtrer les lignes vides
       .map(row => ({
         id: String(row[idIdx] || '').trim(),
@@ -396,8 +397,12 @@ function getSourcesEmotions() {
         emoji: String(row[emojiIdx] || '').trim() || '❓',
         description: String(row[descIdx] || '').trim()
       }));
+
+    Logger.log(`[getSourcesEmotions] ${sources.length} sources chargées depuis la feuille`);
+    return sources;
   } catch (error) {
     Logger.log(`[getSourcesEmotions] Erreur: ${error}`);
+    Logger.log('[getSourcesEmotions] Utilisation des sources par défaut');
     // Retourner les sources par défaut en cas d'erreur
     return [
       { id: 'SR01', emoji: '🏠', name: 'Maison', description: 'Quelque chose à la maison' },
