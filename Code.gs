@@ -60,6 +60,10 @@ const SCHEMAS = {
   Badges_Obtenus: {
     headers: ['Personne', 'BadgeID', 'Date'],
     required: true
+  },
+  Sources_Emotions: {
+    headers: ['ID', 'Nom', 'Emoji', 'Description'],
+    required: true
   }
 };
 
@@ -370,6 +374,40 @@ function getPersonnes() {
       couleur: String(row[2] || '').trim() || '#6C5CE7',
       age: Number(row[3]) || 0
     }));
+}
+
+// ==================================================
+// SOURCES D'EMOTIONS
+// ==================================================
+
+function getSourcesEmotions() {
+  try {
+    const { rows, headerIndex } = getFeuilleAvecHeaders_('Sources_Emotions');
+    const idIdx = headerIndex['ID'] ?? 0;
+    const nomIdx = headerIndex['Nom'] ?? 1;
+    const emojiIdx = headerIndex['Emoji'] ?? 2;
+    const descIdx = headerIndex['Description'] ?? 3;
+
+    return rows
+      .filter(row => row[idIdx] && row[nomIdx]) // Filtrer les lignes vides
+      .map(row => ({
+        id: String(row[idIdx] || '').trim(),
+        name: String(row[nomIdx] || '').trim(),
+        emoji: String(row[emojiIdx] || '').trim() || '❓',
+        description: String(row[descIdx] || '').trim()
+      }));
+  } catch (error) {
+    Logger.log(`[getSourcesEmotions] Erreur: ${error}`);
+    // Retourner les sources par défaut en cas d'erreur
+    return [
+      { id: 'SR01', emoji: '🏠', name: 'Maison', description: 'Quelque chose à la maison' },
+      { id: 'SR02', emoji: '🏫', name: 'Ecole', description: 'Quelque chose à l\'école' },
+      { id: 'SR03', emoji: '👫', name: 'Copains', description: 'Avec mes copains/copines' },
+      { id: 'SR04', emoji: '👭', name: 'Soeur', description: 'Avec ma sœur ou mon frère' },
+      { id: 'SR05', emoji: '👨‍👩‍👧', name: 'Parents', description: 'Avec papa ou maman' },
+      { id: 'SR06', emoji: '⚽', name: 'Activite', description: 'Activités et loisirs' }
+    ];
+  }
 }
 
 // ==================================================
