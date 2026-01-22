@@ -24,15 +24,15 @@ const SCORES = {
   GESTION_ALLOWED: [-1, 0, 1]
 };
 
-// Sources d'emotions (hardcodees)
-const EMOTION_SOURCES = [
+// Sources d'emotions (chargees dynamiquement depuis Google Sheets)
+let EMOTION_SOURCES = [
   { emoji: '🏠', name: 'Maison' },
   { emoji: '🏫', name: 'Ecole' },
   { emoji: '👫', name: 'Copains' },
   { emoji: '👭', name: 'Soeur' },
   { emoji: '👨‍👩‍👧', name: 'Parents' },
   { emoji: '⚽', name: 'Activite' }
-];
+]; // Valeurs par defaut, seront remplacees au chargement
 
 // Etat du formulaire
 let taskRatings = {};
@@ -45,6 +45,7 @@ let selectedHumeur = null;
 // INITIALISATION
 // ==================================================
 document.addEventListener('DOMContentLoaded', function() {
+  loadSourcesEmotions(); // Charger les sources depuis Google Sheets
   loadPersonnes();
   resetForm();
 });
@@ -58,6 +59,24 @@ function resetForm() {
   selectedSourcesByEmotion = {};
   gestionScore = null;
   selectedHumeur = null;
+}
+
+// ==================================================
+// SOURCES D'EMOTIONS
+// ==================================================
+function loadSourcesEmotions() {
+  google.script.run
+    .withSuccessHandler(function(sources) {
+      if (sources && sources.length > 0) {
+        EMOTION_SOURCES = sources;
+        console.log('Sources d\'emotions chargees:', EMOTION_SOURCES);
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error('Erreur lors du chargement des sources:', error);
+      // Garde les sources par defaut en cas d'erreur
+    })
+    .getSourcesEmotions();
 }
 
 // ==================================================
